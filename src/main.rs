@@ -19,4 +19,19 @@ fn main() {
     };
 
     println!("\nTest user created: {} at {}", test_user.username, test_user.created_at);
+
+    // Test creating a file
+    let test_file = models::file::File {
+        id: 1,
+        filename: String::from("Test.pdf"),
+        size: 2_500_000,
+        owner_id: test_user.id,
+        uploaded_at: 11699564900,
+    };
+
+    println!("Test file created: {} ({} bytes) owned by user {}",
+        test_file.filename,
+        test_file.size,
+        test_file.owner_id
+    );
 }
