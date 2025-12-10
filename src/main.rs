@@ -33,17 +33,20 @@ fn main() {
     println!("Password updated successfully");
 
     // Test creating a file
-    let test_file = models::file::File {
-        id: 1,
-        filename: String::from("Test.pdf"),
-        size: 2_500_000,
-        owner_id: test_user.id,
-        uploaded_at: 11699564900,
-    };
-
-    println!("Test file created: {} ({} bytes) owned by user {}",
-        test_file.filename,
-        test_file.size,
-        test_file.owner_id
+    let test_file = models::file::File::new(
+        1,
+        String::from("Test.pdf"),
+        2_500_000,
+        test_user.id,
     );
+
+    test_file.display_info();
+
+    println!("File size: {:.2} MB ({} KB)", test_file.size_in_mb(), test_file.size_in_kb());
+
+    if test_file.is_owned_by(test_user.id) {
+        println!("File ownership verified for user ID {}", test_user.id);
+    } else {
+        println!("File not owned by this user");
+    }
 }
