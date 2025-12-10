@@ -10,15 +10,27 @@ fn main() {
     println!("PORT: {}", port);
     println!("Max users: {}", max_users);
 
-    // Test creating a user
-    let test_user = models::user::User {
-        id: 1,
-        username: String::from("Test"),
-        password_hash: String::from("hashed_password"),
-        created_at: 1699564800,
-    };
+    // Test creating a user with constructor
+    let mut test_user = models::user::User::new (
+        1,
+        String::from("alice"),
+        String::from("hashed_password"),
+    );
 
-    println!("\nTest user created: {} at {}", test_user.username, test_user.created_at);
+    // Display user info
+    test_user.display_info();
+
+    // Check if active
+    println!("Is user active? {}", test_user.is_active());
+
+    // Deactivate user
+    test_user.deactivate();
+    println!("After deactivation:");
+    test_user.display_info();
+
+    // Update password
+    test_user.update_password(String::from("new_hashed_password_456"));
+    println!("Password updated successfully");
 
     // Test creating a file
     let test_file = models::file::File {
