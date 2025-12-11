@@ -36,4 +36,19 @@ impl User {
     pub fn update_password(&mut self, new_password_hash: String) {
         self.password_hash = new_password_hash;
     }
+
+    // Check if username meets minimum requirements
+    pub fn has_valid_username(&self) -> bool {
+        !self.username.is_empty() && self.username.len() >= 3
+    }
+
+    // Check if password has is set
+    pub fn has_password(&self) -> bool {
+        !self.password_hash.is_empty()
+    }
+
+    // Return length of username
+    pub fn username_length(&self) -> usize {
+        self.username.len()
+    }
 }

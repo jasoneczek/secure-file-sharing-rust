@@ -36,4 +36,19 @@ impl File {
     pub fn size_in_kb(&self) -> u64 {
         self.size / 1_000
     }
+
+    // Check if filename has valid extension
+    pub fn has_extension(&self, ext: &str) -> bool {
+        self.filename.ends_with(ext)
+    }
+
+    // Check if file exceeds size limit
+    pub fn exceeds_size_limit(&self, limit: u64) -> bool {
+        self.size > limit
+    }
+
+    // Return filename without extension
+    pub fn filename_without_extension(&self) -> &str {
+        self.filename.split('.').next().unwrap_or(&self.filename)
+    }
 }

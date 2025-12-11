@@ -1,13 +1,15 @@
 mod models;
 
 fn main() {
+    println!("\n=== File Sharing Server ===");
+
     let max_file_size: u64 = 100_000_000;
     let port: u16 = 8080;
     let max_users: u32 = 10_000;
 
-    println!("\n=== File Sharing Server ===");
-    println!("Max file size: {} bytes ({} MB)", max_file_size, max_file_size / 1_000_000);
+    println!("Configuration:");
     println!("PORT: {}", port);
+    println!("Max file size: {} MB", max_file_size / 1_000_000);
     println!("Max users: {}", max_users);
 
     // Test creating a user with constructor
@@ -49,4 +51,19 @@ fn main() {
     } else {
         println!("File not owned by this user");
     }
+
+    println!("\n=== Validation Tests ===");
+
+    // User validation
+    println!("Username valid? {}", test_user.has_valid_username());
+    println!("Has password? {}", test_user.has_password());
+    println!("Username length: {}", test_user.username_length());
+
+    // File validation
+    println!("\nFile has .pdf extension? {}", test_file.has_extension(".pdf"));
+    println!("File exceeds {}MB limit? {}",
+        max_file_size / 1_000_000,
+        test_file.exceeds_size_limit(max_file_size)
+    );
+    println!("Filename without extension: {}", test_file.filename_without_extension());
 }
