@@ -21,6 +21,10 @@ impl Permission {
         }
     }
 
+    pub fn is_owner(&self) -> bool {
+        matches!(self.permission_type, PermissionType::Owner)
+    }
+
     pub fn display_info(&self) {
         let perm_str = match self.permission_type {
             PermissionType::Owner => "Owner",
@@ -29,6 +33,6 @@ impl Permission {
         };
         println!("Permission: User {} has {} access to File {}",
             self.user_id, perm_str, self.file_id);
-        }
+
     }
 }

@@ -1,9 +1,17 @@
+#[derive(Debug)]
+pub enum FileError {
+    ExceedsSizeLimit(u64),
+    InvalidExtension(String),
+    EmptyFileName,
+}
+
 pub struct File {
     pub id: u32,
     pub filename: String,
     pub size: u64,
     pub owner_id: u32,
     pub uploaded_at: i64,
+    pub description: Option<String>,
 }
 
 impl File {
@@ -14,6 +22,7 @@ impl File {
             size,
             owner_id,
             uploaded_at: 11699564900,
+            description: None,
         }
     }
 
@@ -23,6 +32,9 @@ impl File {
             self.size,
             self.owner_id
         );
+        if let Some(desc) = &self.description {
+            println!("Description: {}", desc);
+        }
     }
 
     pub fn is_owned_by(&self, user_id: u32) -> bool {
@@ -30,25 +42,51 @@ impl File {
     }
 
     pub fn size_in_mb(&self) -> f64 {
-        self.size as f64 / 1_000_000.1_000_0
+        self.size as f64 / 1_000_000.0
     }
 
     pub fn size_in_kb(&self) -> u64 {
         self.size / 1_000
     }
 
-    // Check if filename has valid extension
-    pub fn has_extension(&self, ext: &str) -> bool {
-        self.filename.ends_with(ext)
+    // Validate size
+    pub fn validate_size(&self, max_size: u64) -> Result<(), FileError> {
+        if self.size > max_size {
+            return Err(FileError::ExceedsSizeLimit(self.size));
+        }
+        Ok(())
     }
 
-    // Check if file exceeds size limit
-    pub fn exceeds_size_limit(&self, limit: u64) -> bool {
-        self.size > limit
+    // Validate extension
+    pub fn validate_extension(&self, allowed: &[&str]) -> Result<(), FileError> {
+        for ext in allowed {
+            if self.filename.ends_with(ext) {
+                return Ok(());
+            }
+        }
+        Err(FileError::InvalidExtension(self.filename.clone()))
+    }
+
+    // Validate filename
+    pub fn validate_filename(&self) -> Result<(), FileError> {
+        if self.filename.is_empty() {
+            return Err(FileError::EmptyFileName);
+        }
+        Ok(())
     }
 
     // Return filename without extension
     pub fn filename_without_extension(&self) -> &str {
         self.filename.split('.').next().unwrap_or(&self.filename)
+    }
+
+    // Set description
+    pub fn set_description(&mut self, desc: String) {
+        self.description = Some(desc);
+    }
+
+    // Get description
+    pub fn get_description(&self) -> Option<&String> {
+        self.description.as_ref()
     }
 }
