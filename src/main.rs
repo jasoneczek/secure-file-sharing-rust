@@ -64,7 +64,7 @@ fn main() {
 
     // Add description
     file.set_description(String::from("Lab Report"));
-    println!("\nFile description: {}", file.get_description().unwrap_or(&String::from("None")));
+    println!("\nFile description: {}", file.get_description().unwrap_or(&"None".to_owned()));
 
     println!("\n=== Permission System ===");
     let permission = models::permission::Permission::new(
@@ -112,4 +112,23 @@ fn main() {
     // Filter active users
     let active = repo.get_active_users();
     println!("Active users: {}", active.len());
+
+    println!("\n=== FileRepository ===");
+
+    let mut file_repo = repository::FileRepository::new();
+
+    // Add files
+    let file1 = models::file::File::new(101, String::from("file101.txt"), 1_000, 1);
+    let file2 = models::file::File::new(102, String::from("file102.pdf"), 500_000, 1);
+    let file3 = models::file::File::new(103, String::from("file103.zip"), 5_000_000, 2);
+
+    file_repo.add(file1);
+    file_repo.add(file2);
+    file_repo.add(file3);
+
+    println!("Total files: {}", file_repo.count());
+
+    // Find by owner
+    let user1_files = file_repo.find_by_owner(1);
+    println!("User 1 has {} files", user1_files.len());
 }
