@@ -131,4 +131,25 @@ fn main() {
     // Find by owner
     let user1_files = file_repo.find_by_owner(1);
     println!("User 1 has {} files", user1_files.len());
+
+    println!("\n=== PermissionRepository ===");
+
+    let mut perm_repo = repository::PermissionRepository::new();
+
+    perm_repo.add(models::permission::Permission::new(
+        1, 101, 1, models::permission::PermissionType::Owner,
+    ));
+
+    perm_repo.add(models::permission::Permission::new(
+        2, 101, 2, models::permission::PermissionType::Shared,
+    ));
+
+    println!("Total permissions: {}", perm_repo.count());
+
+    let file_perms = perm_repo.find_by_file(101);
+    println!("File 101 has {} permissions", file_perms.len());
+
+    if perm_repo.user_has_access(2, 101) {
+        println!("User 2 has access to file 101");
+    }
 }

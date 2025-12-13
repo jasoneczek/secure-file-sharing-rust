@@ -9,6 +9,7 @@ impl FileRepository {
         FileRepository { files: Vec::new() }
     }
 
+    // Add a new file
     pub fn add(&mut self, file: File) {
         self.files.push(file);
     }
@@ -18,7 +19,7 @@ impl FileRepository {
         self.files.iter().find(|f| f.id == id)
     }
 
-    // Find all files owned by a specific user using filter and collect
+    // Get all files owned by a specific user
     pub fn find_by_owner(&self, owner_id: u32) -> Vec<&File> {
         self.files
             .iter()
@@ -26,6 +27,7 @@ impl FileRepository {
             .collect()
     }
 
+    // Count total files
     pub fn count(&self) -> usize {
         self.files.len()
     }
