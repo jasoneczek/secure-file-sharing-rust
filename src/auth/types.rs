@@ -28,3 +28,14 @@ pub struct AuthTokenResponse {
     pub access_token: String,
     pub expires_in: u64,
 }
+
+/// Internal representation of an authenticated user
+///
+/// This type is used by the authentication service and repository.
+/// It is not exposed over the HTTP API
+#[derive(Debug, Clone)]
+pub struct AuthUser {
+    pub id: u64,
+    pub username: String,
+    pub password_hash: String,
+}
