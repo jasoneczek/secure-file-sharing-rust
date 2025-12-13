@@ -89,3 +89,9 @@ impl User {
         self.email.as_ref()
     }
 }
+
+impl crate::traits::Identifiable for User {
+    fn id(&self) -> u32 {
+        self.id
+    }
+}

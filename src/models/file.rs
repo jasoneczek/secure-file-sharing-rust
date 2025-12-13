@@ -90,3 +90,9 @@ impl File {
         self.description.as_ref()
     }
 }
+
+impl crate::traits::Identifiable for File {
+    fn id(&self) -> u32 {
+        self.id
+    }
+}

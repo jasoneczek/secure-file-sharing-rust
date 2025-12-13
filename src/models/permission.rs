@@ -36,3 +36,9 @@ impl Permission {
 
     }
 }
+
+impl crate::traits::Identifiable for Permission {
+    fn id(&self) -> u32 {
+        self.id
+    }
+}

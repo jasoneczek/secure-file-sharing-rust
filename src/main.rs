@@ -1,4 +1,6 @@
 mod models;
+mod traits;
+mod repository;
 
 fn main() {
     println!("\n=== File Sharing Server ===");
@@ -77,4 +79,37 @@ fn main() {
     if permission.is_owner() {
         println!("User has owner permissions");
     }
+
+    println!("\n=== Repository with Collections & Iterators ===");
+
+    // Create repository
+    let mut repo = repository::UserRepository::new();
+
+    // Add users
+    let user1 = models::user::User::new(1, String::from("alice"), String::from("hash1"));
+    let user2 = models::user::User::new(2, String::from("bob"), String::from("hash2"));
+    let mut user3 = models::user::User::new(3, String::from("charlie"), String::from("hash3"));
+
+    // Make one inactive
+    user3.deactivate();
+
+    repo.add(user1);
+    repo.add(user2);
+    repo.add(user3);
+
+    println!("Total users: {}", repo.count());
+
+    // Find by ID
+    if let Some(found) = repo.find_by_id(2) {
+        println!("Found user by ID: {}", found.username);
+    }
+
+    // Find by username
+    if let Some(found) = repo.find_by_username("alice") {
+        println!("Found user by username: ID {}", found.id);
+    }
+
+    // Filter active users
+    let active = repo.get_active_users();
+    println!("Active users: {}", active.len());
 }
