@@ -1,10 +1,10 @@
-use crate::auth::types::{RegisterRequest, AuthTokenResponse};
-use crate::auth::passwords::hash_password;
+use crate::auth::types::{RegisterRequest, LoginRequest, AuthTokenResponse};
+use crate::auth::passwords::{hash_password, verify_password};
 use crate::auth::repository::AuthUserRepository;
 
 pub trait AuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
-    fn login(&self, req: crate::auth::types::LoginRequest) -> Result<AuthTokenResponse, String>;
+    fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String>;
 }
 
 #[derive(Clone)]
@@ -20,9 +20,18 @@ impl SimpleAuthService {
 
 impl AuthService for SimpleAuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String> {
+        // Basic input validation
+        if req.username.trim().is_empty() {
+            return Err("Username cannot be empty".into())
+        }
+
+        if req.password.len() < 8 {
+            return Err("Password must be at least 8 characters".into());
+        }
+
         // Check if unique
         if self.repo.find_by_username(&req.username).is_some() {
-         return Err("Username already exists".into());
+            return Err("Username already exists".into());
         }
 
         // Hash password
@@ -39,7 +48,25 @@ impl AuthService for SimpleAuthService {
          })
     }
 
-    fn login(&self, _req: crate::auth::types::LoginRequest) -> Result<AuthTokenResponse, String> {
-        Err("not implemented".into())
+    fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
+        // Find user
+        let user = self
+            .repo
+            .find_by_username(&req.username)
+            .ok_or("Invalid credentials")?;
+
+        // Verify password
+        let valid = verify_password(&req.password, &user.password_hash)
+            .map_err(|_| "Password verification failed")?;
+
+        if !valid {
+            return Err("Invalid credentials".into());
+        }
+
+        // Issue token
+        Ok(AuthTokenResponse {
+            access_token: format!("fake-token-user-{}", user.id),
+            expires_in: 3600,
+        })
     }
 }
