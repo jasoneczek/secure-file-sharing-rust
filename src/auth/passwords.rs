@@ -15,7 +15,7 @@ use rand_core::OsRng;
 /// Returns an encoded hash string that is safe to store.
 /// The raw password is never stored or returned.
 pub fn hash_password(password: &str) -> Result<String, PasswordHashError> {
-    let salt = SaltString::generate(&mut 0sRng);
+    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
 
     let hash = argon2.hash_password(password.as_bytes(), &salt)?;

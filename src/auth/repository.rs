@@ -1,23 +1,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use parking_lot::Mutex;
 
 use crate::auth::types::AuthUser;
 
-/// In-memory repository for authentication users.
-///
-/// This repository will store users and their password hashes
-/// for registration and login. It is intended for development
-/// and will be backed by a real database in a later stage.
+/// In-memory repository for authentication users
 #[derive(Clone)]
 pub struct AuthUserRepository {
     inner: Arc<Mutex<InnerRepo>>
 }
 
-/// Internal repository state
-///
-/// Kept private to enforce access through repository methods only
 struct InnerRepo {
     next_id: u64,
     users_by_username: HashMap<String, AuthUser>,

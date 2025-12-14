@@ -543,6 +543,7 @@ dependencies = [
  "axum",
  "parking_lot",
  "rand",
+ "rand_core",
  "serde",
  "serde_json",
  "tokio",

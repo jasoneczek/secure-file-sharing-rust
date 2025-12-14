@@ -1,35 +1,45 @@
-/// Authentication service interface.
-///
-/// Defines the core authentication operations used by HTTP handlers.
-/// Implementations handle user registration and login logic.
+use crate::auth::types::{RegisterRequest, AuthTokenResponse};
+use crate::auth::passwords::hash_password;
+use crate::auth::repository::AuthUserRepository;
+
 pub trait AuthService {
-    /// Register a new user and return authentication token data.
-    fn register(&self, _req: RegisterRequest) -> Result<AuthTokenResponse, String>;
-    /// Authenticate an existing user and return authentication token data.
-    fn login(&self, _req: LoginRequest) -> Result<AuthTokenResponse, String>;
+    fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
+    fn login(&self, req: crate::auth::types::LoginRequest) -> Result<AuthTokenResponse, String>;
 }
-/// Simple in-memory implementation of `AuthService`.
-///
-/// This implementation is used for development and testing and stores
-/// users in an in-memory repository.
+
 #[derive(Clone)]
 pub struct SimpleAuthService {
     pub repo: AuthUserRepository,
 }
 
 impl SimpleAuthService {
-    /// Create a new `SimpleAuthService` backed by the given repository.
     pub fn new(repo: AuthUserRepository) -> Self {
         Self { repo }
     }
 }
 
 impl AuthService for SimpleAuthService {
-    fn register(&self, _req: RegisterRequest) -> Result<AuthTokenResponse, String> {
-        Err("not implemented".into())
+    fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String> {
+        // Check if unique
+        if self.repo.find_by_username(&req.username).is_some() {
+         return Err("Username already exists".into());
+        }
+
+        // Hash password
+         let password_hash =
+            hash_password(&req.password).map_err(|_| "Password hashing failed")?;
+
+         // Create user
+         let user = self.repo.create(req.username, password_hash);
+
+         // Temporary token
+         Ok(AuthTokenResponse {
+             access_token: format!("fake-token-user-{}", user.id),
+             expires_in: 3600,
+         })
     }
 
-    fn login(&self, _req: LoginRequest) -> Result<AuthTokenResponse, String> {
+    fn login(&self, _req: crate::auth::types::LoginRequest) -> Result<AuthTokenResponse, String> {
         Err("not implemented".into())
     }
 }

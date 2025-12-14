@@ -2,6 +2,7 @@ mod models;
 mod traits;
 mod repository;
 mod api;
+mod auth;
 
 use std::sync::Arc;
 use parking_lot::Mutex;
