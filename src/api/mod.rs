@@ -2,6 +2,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 pub mod health;
+pub mod auth;
+
 pub use health::health_check;
 
 use crate::repository::{
@@ -10,9 +12,12 @@ use crate::repository::{
     PermissionRepository,
 };
 
+use crate::auth::service::SimpleAuthService;
+
 #[derive(Clone)]
 pub struct AppState {
     pub users: Arc<Mutex<UserRepository>>,
     pub files: Arc<Mutex<FileRepository>>,
     pub permissions: Arc<Mutex<PermissionRepository>>,
+    pub auth: SimpleAuthService,
 }

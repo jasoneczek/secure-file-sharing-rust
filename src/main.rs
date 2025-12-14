@@ -7,26 +7,37 @@ mod auth;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use axum::{Router, routing::get};
+use axum::{Router, routing::{get, post}};
 use tokio::net::TcpListener;
 
 use api::{AppState, health_check};
+use api::auth::{register_handler, login_handler};
+
 use repository::{UserRepository, FileRepository, PermissionRepository};
+use auth::repository::AuthUserRepository;
+use auth::service::SimpleAuthService;
 
 #[tokio::main]
 async fn main() {
     println!("\n=== File Sharing Server ===");
+
+    // Build auth service
+    let auth_repo = AuthUserRepository::new();
+    let auth_service = SimpleAuthService::new(auth_repo);
 
     // Build application state
     let state = AppState {
         users: Arc::new(Mutex::new(UserRepository::new())),
         files: Arc::new(Mutex::new(FileRepository::new())),
         permissions: Arc::new(Mutex::new(PermissionRepository::new())),
+        auth: auth_service,
     };
 
     // Build Axum router
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/register", post(register_handler))
+        .route("/login", post(login_handler))
         .with_state(state);
 
     // Listener
