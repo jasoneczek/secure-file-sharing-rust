@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 
 pub mod health;
 pub mod auth;
+pub mod auth_middleware;
 
 pub use health::health_check;
 
