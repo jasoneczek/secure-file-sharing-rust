@@ -11,7 +11,7 @@ pub struct AuthUserRepository {
 }
 
 struct InnerRepo {
-    next_id: u64,
+    next_id: u32,
     users_by_username: HashMap<String, AuthUser>,
 }
 

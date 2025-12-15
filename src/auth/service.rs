@@ -1,6 +1,7 @@
 use crate::auth::types::{RegisterRequest, LoginRequest, AuthTokenResponse};
 use crate::auth::passwords::{hash_password, verify_password};
 use crate::auth::repository::AuthUserRepository;
+use crate::auth::token::create_token;
 
 pub trait AuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
@@ -35,17 +36,20 @@ impl AuthService for SimpleAuthService {
         }
 
         // Hash password
-         let password_hash =
-            hash_password(&req.password).map_err(|_| "Password hashing failed")?;
+        let password_hash =
+           hash_password(&req.password).map_err(|_| "Password hashing failed")?;
 
-         // Create user
-         let user = self.repo.create(req.username, password_hash);
+        // Create user
+        let user = self.repo.create(req.username, password_hash);
 
-         // Temporary token
-         Ok(AuthTokenResponse {
-             access_token: format!("fake-token-user-{}", user.id),
+        // Create token
+        let token = create_token(user.id)
+            .map_err(|_| "Token creation failed")?;
+
+        Ok(AuthTokenResponse {
+             access_token: token,
              expires_in: 3600,
-         })
+        })
     }
 
     fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
@@ -64,8 +68,11 @@ impl AuthService for SimpleAuthService {
         }
 
         // Issue token
+        let token = create_token(user.id)
+            .map_err(|_| "Token creation failed")?;
+
         Ok(AuthTokenResponse {
-            access_token: format!("fake-token-user-{}", user.id),
+            access_token: token,
             expires_in: 3600,
         })
     }

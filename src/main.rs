@@ -7,11 +7,18 @@ mod auth;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use axum::{Router, routing::{get, post}};
+use axum::{
+    Router,
+    routing::{get, post},
+    middleware,
+};
+
 use tokio::net::TcpListener;
 
 use api::{AppState, health_check};
 use api::auth::{register_handler, login_handler};
+use api::me::me_handler;
+use api::auth_middleware::auth_middleware;
 
 use repository::{UserRepository, FileRepository, PermissionRepository};
 use auth::repository::AuthUserRepository;
@@ -33,11 +40,25 @@ async fn main() {
         auth: auth_service,
     };
 
-    // Build Axum router
-    let app = Router::new()
+    let protected_state = state.clone();
+
+    // Public routes
+    let public_routes = Router::new()
         .route("/health", get(health_check))
         .route("/register", post(register_handler))
-        .route("/login", post(login_handler))
+        .route("/login", post(login_handler));
+
+    // Protected routes
+    let protected_routes = Router::new()
+        .route("/me", get(me_handler))
+        .layer(middleware::from_fn_with_state(
+            protected_state,
+            auth_middleware,
+        ));
+
+    // Combine routers
+    let app = public_routes
+        .merge(protected_routes)
         .with_state(state);
 
     // Listener

@@ -35,7 +35,7 @@ pub struct AuthTokenResponse {
 /// It is not exposed over the HTTP API
 #[derive(Debug, Clone)]
 pub struct AuthUser {
-    pub id: u64,
+    pub id: u32,
     pub username: String,
     pub password_hash: String,
 }
