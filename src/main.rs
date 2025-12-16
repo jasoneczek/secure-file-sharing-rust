@@ -3,6 +3,7 @@ mod traits;
 mod repository;
 mod api;
 mod auth;
+mod storage;
 
 use std::sync::Arc;
 use parking_lot::Mutex;
