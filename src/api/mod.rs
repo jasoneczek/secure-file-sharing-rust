@@ -5,6 +5,7 @@ pub mod health;
 pub mod auth;
 pub mod auth_middleware;
 pub mod me;
+pub mod file;
 
 pub use health::health_check;
 
