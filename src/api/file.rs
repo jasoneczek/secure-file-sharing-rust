@@ -1,10 +1,14 @@
 use axum::{
-    extract::{Multipart, State, Extension},
-    http::StatusCode,
+    extract::{Multipart, State, Extension, Path},
+    http::{StatusCode, header},
+    response::Response,
+    body::Body,
     Json,
 };
 use serde::Serialize;
 use bytes::Bytes;
+use tokio::fs::File as TokioFile;
+use tokio::io::AsyncReadExt;
 
 use crate::api::AppState;
 use crate::models::file::File;
@@ -32,8 +36,6 @@ pub async fn upload_handler(
     Extension(user_id): Extension<u32>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, StatusCode> {
-    use bytes::Bytes;
-
     let mut file_chunks: Vec<Bytes> = Vec::new();
     let mut filename: Option<String> = None;
 
@@ -98,4 +100,36 @@ pub async fn upload_handler(
         filename,
         size,
     }))
+}
+
+/// Handle authenticated file downloads
+pub async fn download_handler(
+    Path(file_id): Path<u32>,
+    State(state): State<AppState>,
+) -> Result<Response, StatusCode> {
+    let file = {
+        let files = state.files.lock();
+        files.find_by_id(file_id).cloned()
+    }
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let path = final_upload_path(file.id as u64);
+
+    let mut disk_file = TokioFile::open(&path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mut buffer = Vec::new();
+    disk_file
+        .read_to_end(&mut buffer)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut response = Response::new(buffer.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/octet-stream"),
+    );
+
+    Ok(response)
 }

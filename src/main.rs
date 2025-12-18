@@ -20,7 +20,7 @@ use api::{AppState, health_check};
 use api::auth::{register_handler, login_handler};
 use api::me::me_handler;
 use api::auth_middleware::auth_middleware;
-use api::file::upload_handler;
+use api::file::{upload_handler, download_handler};
 
 use repository::{UserRepository, FileRepository, PermissionRepository};
 use auth::repository::AuthUserRepository;
@@ -54,11 +54,11 @@ async fn main() {
     let protected_routes = Router::new()
         .route("/me", get(me_handler))
         .route("/file/upload", post(upload_handler))
+        .route("/file/:id", get(download_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ));
-
 
     // Combine routers
     let app = public_routes.merge(protected_routes).with_state(state);

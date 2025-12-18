@@ -5,6 +5,7 @@ pub enum FileError {
     EmptyFileName,
 }
 
+#[derive(Clone)]
 pub struct File {
     pub id: u32,
     pub filename: String,

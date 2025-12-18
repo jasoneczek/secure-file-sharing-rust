@@ -55,3 +55,8 @@ pub async fn write_file_atomic(
 
     Ok(written)
 }
+
+/// Read a file fully from disk
+pub async fn read_file(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    fs::read(path).await
+}
