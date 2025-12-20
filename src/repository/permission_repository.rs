@@ -1,4 +1,4 @@
-use crate::models::permission::Permission;
+use crate::models::permission::{Permission, PermissionType};
 
 pub struct PermissionRepository {
     permissions: Vec<Permission>,
@@ -37,9 +37,11 @@ impl PermissionRepository {
 
     // Check if user has permission to a file
     pub fn user_has_access(&self, user_id: u32, file_id: u32) -> bool {
-        self.permissions
-            .iter()
-            .any(|p| p.user_id == user_id && p.file_id == file_id)
+        self.permissions.iter().any(|p| {
+            p.user_id == user_id
+                && p.file_id == file_id
+                && matches!(p.permission_type, PermissionType::Shared | PermissionType::Owner)
+        })
     }
 
     // Remove a permission

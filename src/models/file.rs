@@ -11,17 +11,19 @@ pub struct File {
     pub filename: String,
     pub size: u64,
     pub owner_id: u32,
+    pub is_public: bool,
     pub uploaded_at: i64,
     pub description: Option<String>,
 }
 
 impl File {
-    pub fn new(id: u32, filename: String, size: u64, owner_id: u32) -> File {
+    pub fn new(id: u32, filename: String, size: u64, owner_id: u32, is_public: bool) -> File {
         File {
             id,
             filename,
             size,
             owner_id,
+            is_public,
             uploaded_at: 11699564900,
             description: None,
         }

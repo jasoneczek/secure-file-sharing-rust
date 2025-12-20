@@ -31,7 +31,7 @@ impl<'a> FileService<'a> {
     pub fn get_for_download(&self, user_id: u32, file_id: u32) -> Option<&File> {
         let file = self.files.find_by_id(file_id)?;
 
-        if file.owner_id == user_id {
+        if file.is_public || file.owner_id == user_id {
             return Some(file);
         }
 
@@ -40,5 +40,10 @@ impl<'a> FileService<'a> {
         }
 
         None
+    }
+
+    pub fn get_public_for_download(&self, file_id: u32) -> Option<&File> {
+        let file = self.files.find_by_id(file_id)?;
+        if file.is_public { Some(file) } else { None }
     }
 }
