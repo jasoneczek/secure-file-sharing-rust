@@ -29,6 +29,7 @@ use api::file::{
     share_file_handler,
     revoke_share_handler,
 };
+use api::file::revoke_share_by_user_handler;
 
 use repository::{UserRepository, FileRepository, PermissionRepository};
 use auth::repository::AuthUserRepository;
@@ -64,6 +65,7 @@ async fn main() {
         .route("/file/:id", get(download_handler))
         .route("/file/:id/share", post(share_file_handler))
         .route("/file/:id/share/:permission_id", delete(revoke_share_handler))
+        .route("/file/:id/share/user/:user_id", delete(revoke_share_by_user_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

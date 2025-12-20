@@ -272,6 +272,39 @@ pub async fn revoke_share_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn revoke_share_by_user_handler(
+    Path((file_id, target_user_id)): Path<(u32, u32)>,
+    State(state): State<AppState>,
+    Extension(owner_id): Extension<u32>,
+) -> Result<StatusCode, StatusCode> {
+    // Confirm file exists and caller owns it
+    {
+        let files = state.files.lock();
+        let file = files.find_by_id(file_id).ok_or(StatusCode::NOT_FOUND)?;
+        if file.owner_id != owner_id {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+
+    // Find the permission id for (file_id, target_user_id)
+    let permission_id = {
+        let perms = state.permissions.lock();
+        perms.find_by_file(file_id)
+            .into_iter()
+            .find(|p| p.user_id == target_user_id)
+            .map(|p| p.id)
+            .ok_or(StatusCode::NOT_FOUND)?
+    };
+
+    // Remove it
+    {
+        let mut perms = state.permissions.lock();
+        perms.remove(permission_id);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Stream file with headers
 async fn stream_file_response(file_id: u32, filename_for_header: String) -> Result<Response, StatusCode> {
     let path = final_upload_path(file_id as u64);
