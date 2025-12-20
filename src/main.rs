@@ -4,6 +4,7 @@ mod repository;
 mod api;
 mod auth;
 mod storage;
+mod file;
 
 use std::sync::Arc;
 use parking_lot::Mutex;

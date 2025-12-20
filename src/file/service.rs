@@ -35,7 +35,7 @@ impl<'a> FileService<'a> {
             return Some(file);
         }
 
-        if self.permission.user_has_access(user_id, file_id) {
+        if self.permissions.user_has_access(user_id, file_id) {
             return Some(file);
         }
 

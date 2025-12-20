@@ -1,2 +1,2 @@
-mod service;
+pub mod service;
 mod storage;

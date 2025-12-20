@@ -1,22 +1,22 @@
 use axum::{
     extract::{Multipart, State, Extension, Path},
-    http::{StatusCode, header},
+    http::{StatusCode, header, HeaderValue},
     response::Response,
     body::Body,
     Json,
 };
 use serde::Serialize;
-use bytes::Bytes;
 use tokio::fs::File as TokioFile;
-use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 
 use crate::api::AppState;
+use crate::file::service::FileService;
 use crate::models::file::File;
 use crate::storage::disk::{
     ensure_upload_dir,
     temp_upload_path,
     final_upload_path,
-    write_file_atomic,
 };
 
 /// Maximum allowed upload size 10 MB
@@ -36,62 +36,85 @@ pub async fn upload_handler(
     Extension(user_id): Extension<u32>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, StatusCode> {
-    let mut file_chunks: Vec<Bytes> = Vec::new();
-    let mut filename: Option<String> = None;
-
-    // Read multipart fields
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
-    {
-        if field.name() == Some("file") {
-            filename = field.file_name().map(|s| s.to_string());
-
-            let data = field
-                .bytes()
-                .await
-                .map_err(|_| StatusCode::BAD_REQUEST)?;
-
-            file_chunks.push(data);
-        }
-    }
-
-    let filename = filename.ok_or(StatusCode::BAD_REQUEST)?;
-
-    // Ensure upload directory exists
     ensure_upload_dir()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Create file ID
+    // Allocate file ID
     let file_id = {
         let files = state.files.lock();
         (files.count() + 1) as u32
     };
 
-    let temp = temp_upload_path();
+    let temp_path = temp_upload_path();
     let final_path = final_upload_path(file_id as u64);
 
-    // Write file to disk atomically
-    let size = write_file_atomic(
-        &temp,
-        &final_path,
-        &file_chunks,
-        MAX_UPLOAD_SIZE,
-    )
-    .await
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let mut original_filename: Option<String> = None;
+    let mut wrote_file = false;
+    let mut size: u64 = 0;
 
-    // Store file metadata
+    let mut temp_file: Option<TokioFile> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?
+
+    {
+        match field.name() {
+            Some("file") => {
+                original_filename = field.file_name().map(|s| s.to_string());
+
+                let file = TokioFile::create(&temp_path)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                temp_file = Some(file);
+
+                let mut field = field;
+                while let Some(chunk) = field
+                    .chunk()
+                    .await
+                    .map_err(|_| StatusCode::BAD_REQUEST)?
+                {
+                    size = size
+                        .checked_add(chunk.len() as u64)
+                        .ok_or(StatusCode::PAYLOAD_TOO_LARGE)?;
+                    if size > MAX_UPLOAD_SIZE {
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                    }
+
+                    if let Some(f) = temp_file.as_mut() {
+                        f.write_all(&chunk)
+                            .await
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    }
+                }
+
+                wrote_file = true;
+            }
+            _ => {
+                // Ignore unknown fields for now
+            }
+        }
+    }
+
+    if !wrote_file {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let filename = original_filename.ok_or(StatusCode::BAD_REQUEST)?;
+
+    // Close file before rename
+    drop(temp_file);
+
+    tokio::fs::rename(&temp_path, &final_path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Store metadata
     {
         let mut files = state.files.lock();
-        let file = File::new(
-                file_id,
-                filename.clone(),
-                size,
-                user_id,
-            );
+        let file = File::new(file_id, filename.clone(), size, user_id);
         files.add(file);
     }
 
@@ -106,29 +129,40 @@ pub async fn upload_handler(
 pub async fn download_handler(
     Path(file_id): Path<u32>,
     State(state): State<AppState>,
+    Extension(user_id): Extension<u32>,
 ) -> Result<Response, StatusCode> {
-    let file = {
+    let (stored_id, filename_for_header): (u32, String) = {
         let files = state.files.lock();
-        files.find_by_id(file_id).cloned()
-    }
-    .ok_or(StatusCode::NOT_FOUND)?;
+        let perms = state.permissions.lock();
+        let svc = FileService::new(&*files, &*perms);
 
-    let path = final_upload_path(file.id as u64);
+        let file = svc
+            .get_for_download(user_id, file_id)
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-    let mut disk_file = TokioFile::open(&path)
+        (file.id, file.filename.clone())
+    };
+
+    let path = final_upload_path(stored_id as u64);
+
+    let disk_file = TokioFile::open(&path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
-    let mut buffer = Vec::new();
-    disk_file
-        .read_to_end(&mut buffer)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let stream = ReaderStream::new(disk_file);
+    let body = Body::from_stream(stream);
 
-    let mut response = Response::new(buffer.into());
+    let mut response = Response::new(body);
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        header::HeaderValue::from_static("application/octet-stream"),
+        HeaderValue::from_static("application/octet-stream"),
+    );
+
+    let safe_name = filename_for_header.replace('"', "_");
+    let disposition = format!("attachment; filename=\"{}\"", safe_name);
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        disposition.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     );
 
     Ok(response)
