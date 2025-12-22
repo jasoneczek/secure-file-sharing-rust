@@ -4,10 +4,10 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use uuid::Uuid;
 
-use crate::auth::types::{RegisterRequest, LoginRequest, AuthTokenResponse};
 use crate::auth::passwords::{hash_password, verify_password};
 use crate::auth::repository::AuthUserRepository;
 use crate::auth::token::create_token;
+use crate::auth::types::{AuthTokenResponse, LoginRequest, RegisterRequest};
 
 pub trait AuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
@@ -55,7 +55,7 @@ impl AuthService for SimpleAuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String> {
         // Basic input validation
         if req.username.trim().is_empty() {
-            return Err("Username cannot be empty".into())
+            return Err("Username cannot be empty".into());
         }
 
         if req.password.len() < 8 {
@@ -68,8 +68,7 @@ impl AuthService for SimpleAuthService {
         }
 
         // Hash password
-        let password_hash =
-           hash_password(&req.password).map_err(|_| "Password hashing failed")?;
+        let password_hash = hash_password(&req.password).map_err(|_| "Password hashing failed")?;
 
         // Create user
         let user = self.repo.create(req.username, password_hash);

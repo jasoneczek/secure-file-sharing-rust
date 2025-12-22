@@ -1,10 +1,18 @@
-/target
+/target/
 .idea/
-/data/
-/data/uploads/
-test.txt
-downloaded.txt
 *.bin
-bob_download.txt
+
+# Local runtime data
+/data/
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Curl
+downloaded.txt
 private_download.txt
 public_download.txt
+bob_download.txt
+bob_downloaded.txt
+test.txt

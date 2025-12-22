@@ -30,10 +30,9 @@ impl File {
     }
 
     pub fn display_info(&self) {
-        println!("File: {} ({} bytes) - Owner ID: {}",
-            self.filename,
-            self.size,
-            self.owner_id
+        println!(
+            "File: {} ({} bytes) - Owner ID: {}",
+            self.filename, self.size, self.owner_id
         );
         if let Some(desc) = &self.description {
             println!("Description: {}", desc);

@@ -8,10 +8,7 @@ use axum::{
 use crate::auth::token::verify_token;
 
 /// Authentication middleware
-pub async fn auth_middleware(
-    mut req: Request<Body>,
-    next: Next,
-) -> Result<Response, StatusCode> {
+pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
     let auth_header = req
         .headers()
         .get("Authorization")

@@ -1,9 +1,9 @@
 use axum::{
-    extract::{Multipart, State, Extension, Path},
-    http::{StatusCode, header, HeaderValue},
-    response::Response,
-    body::Body,
     Json,
+    body::Body,
+    extract::{Extension, Multipart, Path, State},
+    http::{HeaderValue, StatusCode, header},
+    response::Response,
 };
 use serde::{Deserialize, Serialize};
 use tokio::fs::File as TokioFile;
@@ -14,11 +14,7 @@ use crate::api::AppState;
 use crate::file::service::FileService;
 use crate::models::file::File;
 use crate::models::permission::{Permission, PermissionType};
-use crate::storage::disk::{
-    ensure_upload_dir,
-    temp_upload_path,
-    final_upload_path,
-};
+use crate::storage::disk::{ensure_upload_dir, final_upload_path, temp_upload_path};
 
 /// Maximum allowed upload size 10 MB
 const MAX_UPLOAD_SIZE: u64 = 10 * 1024 * 1024;
@@ -75,7 +71,6 @@ pub async fn upload_handler(
         .next_field()
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?
-
     {
         match field.name() {
             Some("is_public") => {
@@ -95,11 +90,7 @@ pub async fn upload_handler(
                 temp_file = Some(file);
 
                 let mut field = field;
-                while let Some(chunk) = field
-                    .chunk()
-                    .await
-                    .map_err(|_| StatusCode::BAD_REQUEST)?
-                {
+                while let Some(chunk) = field.chunk().await.map_err(|_| StatusCode::BAD_REQUEST)? {
                     size = size
                         .checked_add(chunk.len() as u64)
                         .ok_or(StatusCode::PAYLOAD_TOO_LARGE)?;
@@ -257,7 +248,9 @@ pub async fn revoke_share_handler(
     // Permission exists and belongs to this file
     {
         let perms = state.permissions.lock();
-        let p = perms.find_by_id(permission_id).ok_or(StatusCode::NOT_FOUND)?;
+        let p = perms
+            .find_by_id(permission_id)
+            .ok_or(StatusCode::NOT_FOUND)?;
         if p.file_id != file_id {
             return Err(StatusCode::NOT_FOUND);
         }
@@ -289,7 +282,8 @@ pub async fn revoke_share_by_user_handler(
     // Find the permission id for (file_id, target_user_id)
     let permission_id = {
         let perms = state.permissions.lock();
-        perms.find_by_file(file_id)
+        perms
+            .find_by_file(file_id)
             .into_iter()
             .find(|p| p.user_id == target_user_id)
             .map(|p| p.id)
@@ -306,7 +300,10 @@ pub async fn revoke_share_by_user_handler(
 }
 
 /// Stream file with headers
-async fn stream_file_response(file_id: u32, filename_for_header: String) -> Result<Response, StatusCode> {
+async fn stream_file_response(
+    file_id: u32,
+    filename_for_header: String,
+) -> Result<Response, StatusCode> {
     let path = final_upload_path(file_id as u64);
 
     let disk_file = TokioFile::open(&path)

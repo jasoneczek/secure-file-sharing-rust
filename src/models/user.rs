@@ -28,7 +28,10 @@ impl User {
 
     // Display user info
     pub fn display_info(&self) {
-        println!("User: {} (ID: {}) - Active: {}", self.username, self.id, self.active);
+        println!(
+            "User: {} (ID: {}) - Active: {}",
+            self.username, self.id, self.active
+        );
         match &self.email {
             Some(email) => println!("Email: {}", email),
             None => println!("Email: Not provided"),
@@ -58,7 +61,9 @@ impl User {
     // Validate username
     pub fn validate_username(&self) -> Result<(), UserError> {
         if self.username.is_empty() {
-            return Err(UserError::InvalidUsername("Username cannot be empty".to_string()));
+            return Err(UserError::InvalidUsername(
+                "Username cannot be empty".to_string(),
+            ));
         }
         if self.username.len() < 3 {
             return Err(UserError::UsernameTooShort);

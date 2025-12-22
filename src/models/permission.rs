@@ -31,9 +31,10 @@ impl Permission {
             PermissionType::Shared => "Shared",
             PermissionType::Public => "Public",
         };
-        println!("Permission: User {} has {} access to File {}",
-            self.user_id, perm_str, self.file_id);
-
+        println!(
+            "Permission: User {} has {} access to File {}",
+            self.user_id, perm_str, self.file_id
+        );
     }
 }
 

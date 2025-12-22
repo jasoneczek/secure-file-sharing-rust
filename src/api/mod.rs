@@ -1,21 +1,17 @@
-use std::sync::Arc;
 use parking_lot::Mutex;
+use sqlx::SqlitePool;
+use std::sync::Arc;
 
-pub mod health;
 pub mod auth;
 pub mod auth_middleware;
-pub mod me;
 pub mod file;
+pub mod health;
+pub mod me;
 
 pub use health::health_check;
 
-use crate::repository::{
-    UserRepository,
-    FileRepository,
-    PermissionRepository,
-};
-
 use crate::auth::service::SimpleAuthService;
+use crate::repository::{FileRepository, PermissionRepository, UserRepository};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,4 +19,5 @@ pub struct AppState {
     pub files: Arc<Mutex<FileRepository>>,
     pub permissions: Arc<Mutex<PermissionRepository>>,
     pub auth: SimpleAuthService,
+    pub db: SqlitePool,
 }

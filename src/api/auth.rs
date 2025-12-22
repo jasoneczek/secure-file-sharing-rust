@@ -1,12 +1,12 @@
 use axum::{
-    extract::State,
-    http::{StatusCode, HeaderMap, header},
     Json,
+    extract::State,
+    http::{HeaderMap, StatusCode, header},
 };
 
-use crate::auth::service::AuthService;
-use crate::auth::types::{RegisterRequest, LoginRequest, AuthTokenResponse};
 use crate::api::AppState;
+use crate::auth::service::AuthService;
+use crate::auth::types::{AuthTokenResponse, LoginRequest, RegisterRequest};
 
 /// POST /register
 pub async fn register_handler(
@@ -43,11 +43,17 @@ pub async fn refresh_handler(
     let auth_header = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Missing Authorization header".to_string(),
+        ))?;
 
     let refresh_token = auth_header
         .strip_prefix("Bearer ")
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid Authorization header".to_string()))?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Invalid Authorization header".to_string(),
+        ))?
         .to_string();
 
     let auth = state.auth.clone();

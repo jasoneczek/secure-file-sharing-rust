@@ -1,13 +1,13 @@
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use crate::auth::types::AuthUser;
 
 /// In-memory repository for authentication users
 #[derive(Clone)]
 pub struct AuthUserRepository {
-    inner: Arc<Mutex<InnerRepo>>
+    inner: Arc<Mutex<InnerRepo>>,
 }
 
 struct InnerRepo {

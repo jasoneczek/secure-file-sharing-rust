@@ -1,43 +1,42 @@
-mod models;
-mod traits;
-mod repository;
 mod api;
 mod auth;
-mod storage;
+mod db;
 mod file;
+mod models;
+mod repository;
+mod storage;
+mod traits;
 
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 
-use axum::{
-    Router,
-    routing::{get, post},
-    middleware,
-};
 use axum::routing::delete;
+use axum::{
+    Router, middleware,
+    routing::{get, post},
+};
 
 use tokio::net::TcpListener;
 
-use api::{AppState, health_check};
-use api::auth::{register_handler, login_handler, refresh_handler};
-use api::me::me_handler;
+use api::auth::{login_handler, refresh_handler, register_handler};
 use api::auth_middleware::auth_middleware;
 use api::file::{
-    upload_handler,
-    download_handler,
-    download_public_handler,
-    share_file_handler,
-    revoke_share_handler,
-    revoke_share_by_user_handler,
+    download_handler, download_public_handler, revoke_share_by_user_handler, revoke_share_handler,
+    share_file_handler, upload_handler,
 };
+use api::me::me_handler;
+use api::{AppState, health_check};
 
-use repository::{UserRepository, FileRepository, PermissionRepository};
 use auth::repository::AuthUserRepository;
 use auth::service::SimpleAuthService;
+use repository::{FileRepository, PermissionRepository, UserRepository};
 
 #[tokio::main]
 async fn main() {
     println!("\n=== File Sharing Server ===");
+
+    // Initialize SQLite DB
+    let db_pool = db::init_db().await.expect("DB init failed");
 
     // Build auth service
     let auth_repo = AuthUserRepository::new();
@@ -49,6 +48,7 @@ async fn main() {
         files: Arc::new(Mutex::new(FileRepository::new())),
         permissions: Arc::new(Mutex::new(PermissionRepository::new())),
         auth: auth_service,
+        db: db_pool,
     };
 
     // Public routes
@@ -65,8 +65,14 @@ async fn main() {
         .route("/file/upload", post(upload_handler))
         .route("/file/:id", get(download_handler))
         .route("/file/:id/share", post(share_file_handler))
-        .route("/file/:id/share/:permission_id", delete(revoke_share_handler))
-        .route("/file/:id/share/user/:user_id", delete(revoke_share_by_user_handler))
+        .route(
+            "/file/:id/share/:permission_id",
+            delete(revoke_share_handler),
+        )
+        .route(
+            "/file/:id/share/user/:user_id",
+            delete(revoke_share_by_user_handler),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -80,7 +86,5 @@ async fn main() {
     println!("Server running at http://0.0.0.0:8080/");
 
     // Start server
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }

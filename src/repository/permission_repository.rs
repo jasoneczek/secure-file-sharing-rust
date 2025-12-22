@@ -6,7 +6,9 @@ pub struct PermissionRepository {
 
 impl PermissionRepository {
     pub fn new() -> Self {
-        PermissionRepository { permissions: Vec::new() }
+        PermissionRepository {
+            permissions: Vec::new(),
+        }
     }
 
     // Add permission
@@ -40,7 +42,10 @@ impl PermissionRepository {
         self.permissions.iter().any(|p| {
             p.user_id == user_id
                 && p.file_id == file_id
-                && matches!(p.permission_type, PermissionType::Shared | PermissionType::Owner)
+                && matches!(
+                    p.permission_type,
+                    PermissionType::Shared | PermissionType::Owner
+                )
         })
     }
 

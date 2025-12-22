@@ -1,5 +1,5 @@
-use crate::repository::{FileRepository, PermissionRepository};
 use crate::models::file::File;
+use crate::repository::{FileRepository, PermissionRepository};
 
 /// Business logic for file operations
 pub struct FileService<'a> {
@@ -8,10 +8,7 @@ pub struct FileService<'a> {
 }
 
 impl<'a> FileService<'a> {
-    pub fn new(
-        files: &'a FileRepository,
-        permissions: &'a PermissionRepository,
-    ) -> Self {
+    pub fn new(files: &'a FileRepository, permissions: &'a PermissionRepository) -> Self {
         Self { files, permissions }
     }
 
