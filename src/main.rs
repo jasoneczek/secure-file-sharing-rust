@@ -19,7 +19,7 @@ use axum::routing::delete;
 use tokio::net::TcpListener;
 
 use api::{AppState, health_check};
-use api::auth::{register_handler, login_handler};
+use api::auth::{register_handler, login_handler, refresh_handler};
 use api::me::me_handler;
 use api::auth_middleware::auth_middleware;
 use api::file::{
@@ -28,8 +28,8 @@ use api::file::{
     download_public_handler,
     share_file_handler,
     revoke_share_handler,
+    revoke_share_by_user_handler,
 };
-use api::file::revoke_share_by_user_handler;
 
 use repository::{UserRepository, FileRepository, PermissionRepository};
 use auth::repository::AuthUserRepository;
@@ -56,6 +56,7 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/register", post(register_handler))
         .route("/login", post(login_handler))
+        .route("/token/refresh", get(refresh_handler))
         .route("/file/public/:id", get(download_public_handler));
 
     // Protected routes

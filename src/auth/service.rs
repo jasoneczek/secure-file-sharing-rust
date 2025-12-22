@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use uuid::Uuid;
+
 use crate::auth::types::{RegisterRequest, LoginRequest, AuthTokenResponse};
 use crate::auth::passwords::{hash_password, verify_password};
 use crate::auth::repository::AuthUserRepository;
@@ -6,16 +12,42 @@ use crate::auth::token::create_token;
 pub trait AuthService {
     fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
     fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String>;
+    fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String>;
 }
+
+const EXPIRES_IN: u64 = 3600;
 
 #[derive(Clone)]
 pub struct SimpleAuthService {
     pub repo: AuthUserRepository,
+
+    /// refresh_token -> user_id (in memory for now, move to DB)
+    refresh_tokens: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl SimpleAuthService {
     pub fn new(repo: AuthUserRepository) -> Self {
-        Self { repo }
+        Self {
+            repo,
+            refresh_tokens: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Issue access + refresh tokens and store refresh token mapping
+    fn issue_tokens(&self, user_id: u32) -> Result<AuthTokenResponse, String> {
+        let access_token = create_token(user_id).map_err(|_| "Token creation failed")?;
+        let refresh_token = Uuid::new_v4().to_string();
+
+        {
+            let mut map = self.refresh_tokens.lock();
+            map.insert(refresh_token.clone(), user_id);
+        }
+
+        Ok(AuthTokenResponse {
+            access_token,
+            refresh_token,
+            expires_in: EXPIRES_IN,
+        })
     }
 }
 
@@ -42,14 +74,8 @@ impl AuthService for SimpleAuthService {
         // Create user
         let user = self.repo.create(req.username, password_hash);
 
-        // Create token
-        let token = create_token(user.id)
-            .map_err(|_| "Token creation failed")?;
-
-        Ok(AuthTokenResponse {
-             access_token: token,
-             expires_in: 3600,
-        })
+        // Issue access + refresh tokens
+        self.issue_tokens(user.id)
     }
 
     fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
@@ -67,13 +93,24 @@ impl AuthService for SimpleAuthService {
             return Err("Invalid credentials".into());
         }
 
-        // Issue token
-        let token = create_token(user.id)
-            .map_err(|_| "Token creation failed")?;
+        // Issue access + refresh tokens
+        self.issue_tokens(user.id)
+    }
 
-        Ok(AuthTokenResponse {
-            access_token: token,
-            expires_in: 3600,
-        })
+    fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String> {
+        // Look up refresh token
+        let user_id = {
+            let map = self.refresh_tokens.lock();
+            *map.get(&refresh_token).ok_or("Invalid refresh token")?
+        };
+
+        // Rotate: remove the old refresh token so it can't be reused
+        {
+            let mut map = self.refresh_tokens.lock();
+            map.remove(&refresh_token);
+        }
+
+        // Issue new access + refresh tokens
+        self.issue_tokens(user_id)
     }
 }

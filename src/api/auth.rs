@@ -1,6 +1,6 @@
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap, header},
     Json,
 };
 
@@ -29,6 +29,30 @@ pub async fn login_handler(
     let auth = state.auth.clone();
 
     match auth.login(req) {
+        Ok(token) => Ok(Json(token)),
+        Err(msg) => Err((StatusCode::UNAUTHORIZED, msg)),
+    }
+}
+
+/// GET /token/refresh
+/// Send: Authorization: Bearer <refresh_token>
+pub async fn refresh_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AuthTokenResponse>, (StatusCode, String)> {
+    let auth_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+
+    let refresh_token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid Authorization header".to_string()))?
+        .to_string();
+
+    let auth = state.auth.clone();
+
+    match auth.refresh(refresh_token) {
         Ok(token) => Ok(Json(token)),
         Err(msg) => Err((StatusCode::UNAUTHORIZED, msg)),
     }
