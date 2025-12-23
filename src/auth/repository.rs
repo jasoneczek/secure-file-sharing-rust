@@ -1,50 +1,65 @@
-use parking_lot::Mutex;
-use std::collections::HashMap;
-use std::sync::Arc;
+use sqlx::{Row, SqlitePool};
 
 use crate::auth::types::AuthUser;
 
-/// In-memory repository for authentication users
+/// DB backed repository for authentication users
 #[derive(Clone)]
 pub struct AuthUserRepository {
-    inner: Arc<Mutex<InnerRepo>>,
-}
-
-struct InnerRepo {
-    next_id: u32,
-    users_by_username: HashMap<String, AuthUser>,
+    pool: SqlitePool,
 }
 
 impl AuthUserRepository {
     /// Create a new authentication user repository.
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(InnerRepo {
-                next_id: 1,
-                users_by_username: HashMap::new(),
-            })),
-        }
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
     }
 
     /// Find a user by username
-    pub fn find_by_username(&self, username: &str) -> Option<AuthUser> {
-        let repo = self.inner.lock();
-        repo.users_by_username.get(username).cloned()
+    pub async fn find_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<AuthUser>, sqlx::Error> {
+        let row_opt = sqlx::query(
+            r#"
+            SELECT id, username, password_hash
+            FROM users
+            WHERE username = ?
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row_opt.map(|row| AuthUser {
+            id: row.get::<i64, _>("id") as u32,
+            username: row.get::<String, _>("username"),
+            password_hash: row.get::<String, _>("password_hash"),
+        }))
     }
 
     /// Create and store a new user with a unique ID
-    pub fn create(&self, username: String, password_hash: String) -> AuthUser {
-        let mut repo = self.inner.lock();
+    pub async fn create(
+        &self,
+        username: String,
+        password_hash: String,
+    ) -> Result<AuthUser, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO users (username, password_hash, active)
+            VALUES (?, ?, 1)
+            "#,
+        )
+        .bind(&username)
+        .bind(&password_hash)
+        .execute(&self.pool)
+        .await?;
 
-        let user = AuthUser {
-            id: repo.next_id,
-            username: username.clone(),
+        let id = result.last_insert_rowid() as u32;
+
+        Ok(AuthUser {
+            id,
+            username,
             password_hash,
-        };
-
-        repo.next_id += 1;
-        repo.users_by_username.insert(username, user.clone());
-
-        user
+        })
     }
 }

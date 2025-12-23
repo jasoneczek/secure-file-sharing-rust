@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use parking_lot::Mutex;
 use uuid::Uuid;
 
@@ -9,10 +10,11 @@ use crate::auth::repository::AuthUserRepository;
 use crate::auth::token::create_token;
 use crate::auth::types::{AuthTokenResponse, LoginRequest, RegisterRequest};
 
+#[async_trait]
 pub trait AuthService {
-    fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
-    fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String>;
-    fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String>;
+    async fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String>;
+    async fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String>;
+    async fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String>;
 }
 
 const EXPIRES_IN: u64 = 3600;
@@ -51,8 +53,9 @@ impl SimpleAuthService {
     }
 }
 
+#[async_trait]
 impl AuthService for SimpleAuthService {
-    fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String> {
+    async fn register(&self, req: RegisterRequest) -> Result<AuthTokenResponse, String> {
         // Basic input validation
         if req.username.trim().is_empty() {
             return Err("Username cannot be empty".into());
@@ -63,7 +66,13 @@ impl AuthService for SimpleAuthService {
         }
 
         // Check if unique
-        if self.repo.find_by_username(&req.username).is_some() {
+        let existing = self
+            .repo
+            .find_by_username(&req.username)
+            .await
+            .map_err(|_| "Database error")?;
+
+        if existing.is_some() {
             return Err("Username already exists".into());
         }
 
@@ -71,17 +80,23 @@ impl AuthService for SimpleAuthService {
         let password_hash = hash_password(&req.password).map_err(|_| "Password hashing failed")?;
 
         // Create user
-        let user = self.repo.create(req.username, password_hash);
+        let user = self
+            .repo
+            .create(req.username, password_hash)
+            .await
+            .map_err(|_| "Database error")?;
 
         // Issue access + refresh tokens
         self.issue_tokens(user.id)
     }
 
-    fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
+    async fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
         // Find user
         let user = self
             .repo
             .find_by_username(&req.username)
+            .await
+            .map_err(|_| "Database error")?
             .ok_or("Invalid credentials")?;
 
         // Verify password
@@ -96,7 +111,7 @@ impl AuthService for SimpleAuthService {
         self.issue_tokens(user.id)
     }
 
-    fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String> {
+    async fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String> {
         // Look up refresh token
         let user_id = {
             let map = self.refresh_tokens.lock();

@@ -39,7 +39,7 @@ async fn main() {
     let db_pool = db::init_db().await.expect("DB init failed");
 
     // Build auth service
-    let auth_repo = AuthUserRepository::new();
+    let auth_repo = AuthUserRepository::new(db_pool.clone());
     let auth_service = SimpleAuthService::new(auth_repo);
 
     // Build application state
