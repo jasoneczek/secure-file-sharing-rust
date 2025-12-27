@@ -7,9 +7,6 @@ mod repository;
 mod storage;
 mod traits;
 
-use parking_lot::Mutex;
-use std::sync::Arc;
-
 use axum::routing::delete;
 use axum::{
     Router, middleware,
@@ -29,7 +26,6 @@ use api::{AppState, health_check};
 
 use auth::repository::AuthUserRepository;
 use auth::service::SimpleAuthService;
-use repository::{FileRepository, PermissionRepository, UserRepository};
 
 #[tokio::main]
 async fn main() {
@@ -44,9 +40,6 @@ async fn main() {
 
     // Build application state
     let state = AppState {
-        users: Arc::new(Mutex::new(UserRepository::new())),
-        files: Arc::new(Mutex::new(FileRepository::new())),
-        permissions: Arc::new(Mutex::new(PermissionRepository::new())),
         auth: auth_service,
         db: db_pool,
     };
