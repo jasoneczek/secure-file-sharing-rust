@@ -1,7 +1,7 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
-use tokio::fs;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::path::PathBuf;
+use tokio::fs;
 
 /// Initialize SQLite database and create tables if missing
 /// DB file will be created in data/app.db
@@ -18,7 +18,8 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
 
     let opts = SqliteConnectOptions::new()
         .filename(&db_path)
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .pragma("foreign_keys", "ON");
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -65,10 +66,34 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
             file_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             permission_type TEXT NOT NULL,
-            FOREIGN KEY(file_id) REFERENCES files(id),
-            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             UNIQUE(file_id, user_id)
         );
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            revoked_at INTEGER,
+            replaced_by TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id
+        ON refresh_tokens(user_id);
         "#,
     )
     .execute(&pool)

@@ -1,8 +1,4 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 use crate::auth::passwords::{hash_password, verify_password};
@@ -22,28 +18,27 @@ const EXPIRES_IN: u64 = 3600;
 #[derive(Clone)]
 pub struct SimpleAuthService {
     pub repo: AuthUserRepository,
-
-    /// refresh_token -> user_id (in memory for now, move to DB)
-    refresh_tokens: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl SimpleAuthService {
     pub fn new(repo: AuthUserRepository) -> Self {
-        Self {
-            repo,
-            refresh_tokens: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self { repo }
     }
 
-    /// Issue access + refresh tokens and store refresh token mapping
-    fn issue_tokens(&self, user_id: u32) -> Result<AuthTokenResponse, String> {
+    /// Issue access + refresh tokens and store refresh token in DB
+    async fn issue_tokens(&self, user_id: u32) -> Result<AuthTokenResponse, String> {
         let access_token = create_token(user_id).map_err(|_| "Token creation failed")?;
         let refresh_token = Uuid::new_v4().to_string();
 
-        {
-            let mut map = self.refresh_tokens.lock();
-            map.insert(refresh_token.clone(), user_id);
-        }
+        self.repo
+            .revoke_all_refresh_tokens_for_user(user_id)
+            .await
+            .map_err(|_| "Database error")?;
+
+        self.repo
+            .insert_refresh_token(user_id, &refresh_token)
+            .await
+            .map_err(|_| "Database error")?;
 
         Ok(AuthTokenResponse {
             access_token,
@@ -87,7 +82,7 @@ impl AuthService for SimpleAuthService {
             .map_err(|_| "Database error")?;
 
         // Issue access + refresh tokens
-        self.issue_tokens(user.id)
+        self.issue_tokens(user.id).await
     }
 
     async fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
@@ -108,23 +103,25 @@ impl AuthService for SimpleAuthService {
         }
 
         // Issue access + refresh tokens
-        self.issue_tokens(user.id)
+        self.issue_tokens(user.id).await
     }
 
     async fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String> {
-        // Look up refresh token
-        let user_id = {
-            let map = self.refresh_tokens.lock();
-            *map.get(&refresh_token).ok_or("Invalid refresh token")?
-        };
+        let new_refresh = Uuid::new_v4().to_string();
 
-        // Rotate: remove the old refresh token so it can't be reused
-        {
-            let mut map = self.refresh_tokens.lock();
-            map.remove(&refresh_token);
-        }
+        let user_id = self
+            .repo
+            .rotate_refresh_token(&refresh_token, &new_refresh)
+            .await
+            .map_err(|_| "Database error")?
+            .ok_or("Invalid refresh token")?;
 
-        // Issue new access + refresh tokens
-        self.issue_tokens(user_id)
+        let access_token = create_token(user_id).map_err(|_| "Token creation failed")?;
+
+        Ok(AuthTokenResponse {
+            access_token,
+            refresh_token: new_refresh,
+            expires_in: EXPIRES_IN,
+        })
     }
 }

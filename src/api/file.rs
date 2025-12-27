@@ -6,18 +6,14 @@ use axum::{
     response::Response,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
-use sqlx::Row;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::AppState;
 use crate::storage::disk::{ensure_upload_dir, final_upload_path, temp_upload_path};
-
-use crate::file::service::FileService;
-use crate::models::file::File;
-use crate::models::permission::{Permission, PermissionType};
 
 /// Maximum allowed upload size 10 MB
 const MAX_UPLOAD_SIZE: u64 = 10 * 1024 * 1024;
@@ -144,9 +140,15 @@ pub async fn upload_handler(
 
     // Move temp file into final path using file_id
     let final_path = final_upload_path(file_id as u64);
-    tokio::fs::rename(&temp_path, &final_path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if tokio::fs::rename(&temp_path, &final_path).await.is_err() {
+        let _ = sqlx::query("DELETE FROM files WHERE id = ?1")
+            .bind(file_id as i64)
+            .execute(&state.db)
+            .await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
+
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     Ok(Json(UploadResponse {
         file_id,
@@ -235,17 +237,17 @@ pub async fn share_file_handler(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Prevent duplicate share
-    let dup = sqlx::query("SELECT 1 FROM permissions WHERE file_id = ?1 AND user_id = ?2 LIMIT 1")
-        .bind(file_id as i64)
+    // Return 404 if target user doesn't exist
+    let target_exists = sqlx::query("SELECT 1 FROM users WHERE id = ?1 LIMIT 1")
         .bind(req.user_id as i64)
         .fetch_optional(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if dup.is_some() {
-        return Err(StatusCode::CONFLICT);
+    if target_exists.is_none() {
+        return Err(StatusCode::NOT_FOUND);
     }
 
+    // Insert permission
     let res = sqlx::query(
         r#"
         INSERT INTO permissions (file_id, user_id, permission_type)
@@ -255,8 +257,20 @@ pub async fn share_file_handler(
     .bind(file_id as i64)
     .bind(req.user_id as i64)
     .execute(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .await;
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let sqlx::Error::Database(db_err) = &e {
+                let msg = db_err.message().to_ascii_lowercase();
+                if msg.contains("unique") || msg.contains("constraint") {
+                    return Err(StatusCode::CONFLICT);
+                }
+            }
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     let permission_id = res.last_insert_rowid() as u32;
 
@@ -273,7 +287,7 @@ pub async fn revoke_share_handler(
     State(state): State<AppState>,
     Extension(owner_id): Extension<u32>,
 ) -> Result<StatusCode, StatusCode> {
-    // File exists and caller owns it
+    // Verify if file exists and caller owns it
     let row = sqlx::query("SELECT owner_id FROM files WHERE id = ?1")
         .bind(file_id as i64)
         .fetch_optional(&state.db)
@@ -296,7 +310,7 @@ pub async fn revoke_share_handler(
 
     let p_file_id: i64 = prow.get("file_id");
     if p_file_id != file_id as i64 {
-        return Err(StatusCode::NOT_FOUND)
+        return Err(StatusCode::NOT_FOUND);
     }
 
     // Delete
