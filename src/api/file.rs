@@ -6,14 +6,13 @@ use axum::{
     response::Response,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 
 use crate::api::AppState;
-use crate::file::service::FileService;
-use crate::models::file::File;
-use crate::models::permission::{Permission, PermissionType};
 use crate::storage::disk::{ensure_upload_dir, final_upload_path, temp_upload_path};
 
 /// Maximum allowed upload size 10 MB
@@ -50,14 +49,7 @@ pub async fn upload_handler(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Allocate file ID
-    let file_id = {
-        let files = state.files.lock();
-        (files.count() + 1) as u32
-    };
-
     let temp_path = temp_upload_path();
-    let final_path = final_upload_path(file_id as u64);
 
     let mut original_filename: Option<String> = None;
     let mut wrote_file = false;
@@ -123,15 +115,39 @@ pub async fn upload_handler(
     // Close file before rename
     drop(temp_file);
 
-    tokio::fs::rename(&temp_path, &final_path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Insert into DB first to get a stable file_id
+    let uploaded_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .as_secs() as i64;
 
-    // Store metadata
-    {
-        let mut files = state.files.lock();
-        let file = File::new(file_id, filename.clone(), size, user_id, is_public);
-        files.add(file);
+    let res = sqlx::query(
+        r#"
+        INSERT INTO files (filename, size, owner_id, is_public, uploaded_at, description)
+        VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+        "#,
+    )
+    .bind(&filename)
+    .bind(size as i64)
+    .bind(user_id as i64)
+    .bind(if is_public { 1i64 } else { 0i64 })
+    .bind(uploaded_at)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let file_id = res.last_insert_rowid() as u32;
+
+    // Move temp file into final path using file_id
+    let final_path = final_upload_path(file_id as u64);
+    if tokio::fs::rename(&temp_path, &final_path).await.is_err() {
+        let _ = sqlx::query("DELETE FROM files WHERE id = ?1")
+            .bind(file_id as i64)
+            .execute(&state.db)
+            .await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
+
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     Ok(Json(UploadResponse {
@@ -148,39 +164,57 @@ pub async fn download_handler(
     State(state): State<AppState>,
     Extension(user_id): Extension<u32>,
 ) -> Result<Response, StatusCode> {
-    let (stored_id, filename_for_header) = {
-        let files = state.files.lock();
-        let perms = state.permissions.lock();
-        let svc = FileService::new(&*files, &*perms);
+    let row = sqlx::query(
+        r#"
+        SELECT f.id, f.filename
+        FROM files f
+        WHERE f.id = ?1
+            AND (
+                f.owner_id = ?2
+                OR EXISTS (
+                    SELECT 1
+                    FROM permissions p
+                    WHERE p.file_id = f.id
+                        AND p.user_id = ?2
+                )
+            )
+        "#,
+    )
+    .bind(file_id as i64)
+    .bind(user_id as i64)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let file = svc
-            .get_for_download(user_id, file_id)
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let row = row.ok_or(StatusCode::NOT_FOUND)?;
+    let stored_id: i64 = row.get("id");
+    let filename_for_header: String = row.get("filename");
 
-        (file.id, file.filename.clone())
-    };
-
-    stream_file_response(stored_id, filename_for_header).await
+    stream_file_response(stored_id as u32, filename_for_header).await
 }
 
-/// Public download (no auth): only works if file.is_public == true
+/// Public download (no auth): only works if file.is_public == 1
 pub async fn download_public_handler(
     Path(file_id): Path<u32>,
     State(state): State<AppState>,
 ) -> Result<Response, StatusCode> {
-    let (stored_id, filename_for_header) = {
-        let files = state.files.lock();
-        let perms = state.permissions.lock();
-        let svc = FileService::new(&*files, &*perms);
+    let row = sqlx::query(
+        r#"
+        SELECT id, filename
+        FROM files
+        WHERE id = ?1 AND is_public = 1
+        "#,
+    )
+    .bind(file_id as i64)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let file = svc
-            .get_public_for_download(file_id)
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let row = row.ok_or(StatusCode::NOT_FOUND)?;
+    let stored_id: i64 = row.get("id");
+    let filename_for_header: String = row.get("filename");
 
-        (file.id, file.filename.clone())
-    };
-
-    stream_file_response(stored_id, filename_for_header).await
+    stream_file_response(stored_id as u32, filename_for_header).await
 }
 
 /// Owner-only: grant another user access to a file
@@ -190,38 +224,55 @@ pub async fn share_file_handler(
     Extension(owner_id): Extension<u32>,
     Json(req): Json<ShareRequest>,
 ) -> Result<Json<ShareResponse>, StatusCode> {
-    // File exists and caller is owner
-    {
-        let files = state.files.lock();
-        let file = files.find_by_id(file_id).ok_or(StatusCode::NOT_FOUND)?;
-        if file.owner_id != owner_id {
-            return Err(StatusCode::NOT_FOUND); // anti-leak
-        }
+    // Verify file exists and caller is owner
+    let row = sqlx::query("SELECT owner_id FROM files WHERE id = ?1")
+        .bind(file_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let row = row.ok_or(StatusCode::NOT_FOUND)?;
+    let db_owner_id: i64 = row.get("owner_id");
+    if db_owner_id != owner_id as i64 {
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    // Prevent duplicate share
-    {
-        let perms = state.permissions.lock();
-        if perms.user_has_access(req.user_id, file_id) {
-            return Err(StatusCode::CONFLICT);
-        }
+    // Return 404 if target user doesn't exist
+    let target_exists = sqlx::query("SELECT 1 FROM users WHERE id = ?1 LIMIT 1")
+        .bind(req.user_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if target_exists.is_none() {
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    // Create id and add permission
-    let permission_id = {
-        let perms = state.permissions.lock();
-        (perms.count() + 1) as u32
+    // Insert permission
+    let res = sqlx::query(
+        r#"
+        INSERT INTO permissions (file_id, user_id, permission_type)
+        VALUES (?1, ?2, 'Shared')
+        "#,
+    )
+    .bind(file_id as i64)
+    .bind(req.user_id as i64)
+    .execute(&state.db)
+    .await;
+
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            if let sqlx::Error::Database(db_err) = &e {
+                let msg = db_err.message().to_ascii_lowercase();
+                if msg.contains("unique") || msg.contains("constraint") {
+                    return Err(StatusCode::CONFLICT);
+                }
+            }
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
-    {
-        let mut perms = state.permissions.lock();
-        perms.add(Permission::new(
-            permission_id,
-            file_id,
-            req.user_id,
-            PermissionType::Shared,
-        ));
-    }
+    let permission_id = res.last_insert_rowid() as u32;
 
     Ok(Json(ShareResponse {
         permission_id,
@@ -236,65 +287,78 @@ pub async fn revoke_share_handler(
     State(state): State<AppState>,
     Extension(owner_id): Extension<u32>,
 ) -> Result<StatusCode, StatusCode> {
-    // File exists and caller owns it
-    {
-        let files = state.files.lock();
-        let file = files.find_by_id(file_id).ok_or(StatusCode::NOT_FOUND)?;
-        if file.owner_id != owner_id {
-            return Err(StatusCode::NOT_FOUND); // anti-leak
-        }
+    // Verify if file exists and caller owns it
+    let row = sqlx::query("SELECT owner_id FROM files WHERE id = ?1")
+        .bind(file_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let db_owner_id: i64 = row.get("owner_id");
+    if db_owner_id != owner_id as i64 {
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    // Permission exists and belongs to this file
-    {
-        let perms = state.permissions.lock();
-        let p = perms
-            .find_by_id(permission_id)
-            .ok_or(StatusCode::NOT_FOUND)?;
-        if p.file_id != file_id {
-            return Err(StatusCode::NOT_FOUND);
-        }
+    // Verify permission belongs to this file
+    let prow = sqlx::query("SELECT file_id FROM permissions WHERE id = ?1")
+        .bind(permission_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let p_file_id: i64 = prow.get("file_id");
+    if p_file_id != file_id as i64 {
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    // Remove
-    {
-        let mut perms = state.permissions.lock();
-        perms.remove(permission_id);
-    }
+    // Delete
+    sqlx::query("DELETE FROM permissions WHERE id = ?1")
+        .bind(permission_id as i64)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
+// Revoke a share by target user id
 pub async fn revoke_share_by_user_handler(
     Path((file_id, target_user_id)): Path<(u32, u32)>,
     State(state): State<AppState>,
     Extension(owner_id): Extension<u32>,
 ) -> Result<StatusCode, StatusCode> {
-    // Confirm file exists and caller owns it
-    {
-        let files = state.files.lock();
-        let file = files.find_by_id(file_id).ok_or(StatusCode::NOT_FOUND)?;
-        if file.owner_id != owner_id {
-            return Err(StatusCode::NOT_FOUND);
-        }
+    // Verify file exists and caller owns it
+    let row = sqlx::query("SELECT owner_id FROM files WHERE id = ?1")
+        .bind(file_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let db_owner_id: i64 = row.get("owner_id");
+    if db_owner_id != owner_id as i64 {
+        return Err(StatusCode::NOT_FOUND);
     }
 
     // Find the permission id for (file_id, target_user_id)
-    let permission_id = {
-        let perms = state.permissions.lock();
-        perms
-            .find_by_file(file_id)
-            .into_iter()
-            .find(|p| p.user_id == target_user_id)
-            .map(|p| p.id)
-            .ok_or(StatusCode::NOT_FOUND)?
-    };
+    let row = sqlx::query("SELECT id FROM permissions WHERE file_id = ?1 AND user_id = ?2 LIMIT 1")
+        .bind(file_id as i64)
+        .bind(target_user_id as i64)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Remove it
-    {
-        let mut perms = state.permissions.lock();
-        perms.remove(permission_id);
-    }
+    let permission_id: i64 = row.get("id");
+
+    // Delete
+    sqlx::query("DELETE FROM permissions WHERE id = ?1")
+        .bind(permission_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
 }

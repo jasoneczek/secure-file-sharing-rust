@@ -15,7 +15,7 @@ pub async fn register_handler(
 ) -> Result<Json<AuthTokenResponse>, (StatusCode, String)> {
     let auth = state.auth.clone();
 
-    match auth.register(req) {
+    match auth.register(req).await {
         Ok(token) => Ok(Json(token)),
         Err(msg) => Err((StatusCode::BAD_REQUEST, msg)),
     }
@@ -28,37 +28,36 @@ pub async fn login_handler(
 ) -> Result<Json<AuthTokenResponse>, (StatusCode, String)> {
     let auth = state.auth.clone();
 
-    match auth.login(req) {
+    match auth.login(req).await {
         Ok(token) => Ok(Json(token)),
         Err(msg) => Err((StatusCode::UNAUTHORIZED, msg)),
     }
 }
 
 /// GET /token/refresh
-/// Send: Authorization: Bearer <refresh_token>
 pub async fn refresh_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<AuthTokenResponse>, (StatusCode, String)> {
+    let auth = state.auth.clone();
+
     let auth_header = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .ok_or((
             StatusCode::UNAUTHORIZED,
-            "Missing Authorization header".to_string(),
+            "Missing Authorization header".into(),
         ))?;
 
     let refresh_token = auth_header
         .strip_prefix("Bearer ")
         .ok_or((
             StatusCode::UNAUTHORIZED,
-            "Invalid Authorization header".to_string(),
+            "Invalid Authorization header".into(),
         ))?
         .to_string();
 
-    let auth = state.auth.clone();
-
-    match auth.refresh(refresh_token) {
+    match auth.refresh(refresh_token).await {
         Ok(token) => Ok(Json(token)),
         Err(msg) => Err((StatusCode::UNAUTHORIZED, msg)),
     }

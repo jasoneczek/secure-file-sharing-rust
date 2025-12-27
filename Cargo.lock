@@ -1318,6 +1318,7 @@ name = "secure_file_server"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "async-trait",
  "axum",
  "bytes",
  "jsonwebtoken",
