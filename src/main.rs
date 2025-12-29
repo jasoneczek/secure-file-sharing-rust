@@ -31,6 +31,9 @@ use auth::service::SimpleAuthService;
 async fn main() {
     println!("\n=== File Sharing Server ===");
 
+    // Load .env
+    dotenvy::dotenv().ok();
+
     // Initialize SQLite DB
     let db_pool = db::init_db().await.expect("DB init failed");
 

@@ -16,3 +16,5 @@ public_download.txt
 bob_download.txt
 bob_downloaded.txt
 test.txt
+
+.env

@@ -1321,6 +1321,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
+ "dotenvy",
  "jsonwebtoken",
  "parking_lot",
  "rand",
