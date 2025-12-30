@@ -81,7 +81,7 @@ async fn main() {
                 return;
             }
 
-            println!("Registered. Tokens saved to {:?}", token_path());
+            println!("Registered.");
         }
 
         Command::Login { username, password } => {
@@ -128,7 +128,7 @@ async fn main() {
                 return;
             }
 
-            println!("Logged in. Tokens saved to {:?}", token_path());
+            println!("Logged in.");
         }
 
         Command::Me => {
@@ -489,8 +489,8 @@ async fn main() {
         }
 
         Command::Logout => match logout_local() {
-            Ok(()) => println!("Logged out. Removed {:?}", token_path()),
-            Err(e) => eprintln!("Failed to remove {:?}: {e}", token_path()),
+            Ok(()) => println!("Logged out."),
+            Err(e) => eprintln!("Failed to remove: {e}"),
         },
     }
 }

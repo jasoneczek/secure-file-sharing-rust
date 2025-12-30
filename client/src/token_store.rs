@@ -1,8 +1,11 @@
 use crate::types::TokenStore;
 use std::{fs, path::PathBuf};
+use directories::ProjectDirs;
 
 pub fn token_path() -> PathBuf {
-    PathBuf::from("client").join(".sfs").join("tokens.json")
+    let proj = ProjectDirs::from("com", "programming-3", "sfs")
+        .expect("Could not determine a config directory");
+    proj.config_dir().join("tokens.json")
 }
 
 pub fn save_tokens(store: &TokenStore) -> std::io::Result<()> {
