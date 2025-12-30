@@ -1,101 +1,12 @@
-use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+mod cli;
+mod token_store;
+mod types;
 
-#[derive(Parser)]
-#[command(name = "sfs", about = "Secure File Sharing CLI client")]
-struct Cli {
-    #[arg(long, default_value = "http://localhost:8080")]
-    base: String,
+use clap::Parser;
 
-    #[command(subcommand)]
-    cmd: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    Health,
-    Register { username: String, password: String },
-    Login { username: String, password: String },
-    Me,
-    Refresh,
-    Upload {
-        path: String,
-        #[arg(long, default_value_t = false)]
-        public: bool,
-    },
-    Download {
-        file_id: u32,
-        #[arg(long)]
-        out: String,
-    },
-    Share {
-        file_id: u32,
-        user_id: u32,
-    },
-    RevokeUser {
-        file_id: u32,
-        user_id: u32,
-    },
-    PublicDownload {
-        file_id: u32,
-        #[arg(long)]
-        out: String,
-    },
-    Logout,
-}
-
-#[derive(Serialize)]
-struct AuthReq<'a> {
-    username: &'a str,
-    password: &'a str,
-}
-
-#[derive(Deserialize)]
-struct AuthResp {
-    access_token: String,
-    refresh_token: String,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct TokenStore {
-    access_token: String,
-    refresh_token: String,
-}
-
-#[derive(Deserialize)]
-struct ShareResp {
-    permission_id: u32,
-    file_id: u32,
-    user_id: u32,
-}
-
-fn token_path() -> PathBuf {
-    PathBuf::from("client").join(".sfs").join("tokens.json")
-}
-
-fn save_tokens(store: &TokenStore) -> std::io::Result<()> {
-    let p = token_path();
-    if let Some(dir) = p.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let s = serde_json::to_string_pretty(store).unwrap();
-    fs::write(p, s)
-}
-
-fn load_tokens() -> std::io::Result<TokenStore> {
-    let p = token_path();
-    let s = fs::read_to_string(p)?;
-    Ok(serde_json::from_str(&s).unwrap_or_default())
-}
-
-fn require_access(store: &TokenStore) -> Option<&str> {
-    if store.access_token.is_empty() {
-        None
-    } else {
-        Some(store.access_token.as_str())
-    }
-}
+use cli::{Cli, Command};
+use token_store::*;
+use types::*;
 
 #[tokio::main]
 async fn main() {
@@ -172,6 +83,7 @@ async fn main() {
 
             println!("Registered. Tokens saved to {:?}", token_path());
         }
+
         Command::Login { username, password } => {
             let url = format!("{}/login", cli.base);
 
@@ -218,6 +130,7 @@ async fn main() {
 
             println!("Logged in. Tokens saved to {:?}", token_path());
         }
+
         Command::Me => {
             let store = match load_tokens() {
                 Ok(s) => s,
@@ -262,16 +175,19 @@ async fn main() {
                 }
             };
 
-            if store.refresh_token.is_empty() {
-                eprintln!("No refresh token saved. Login again.");
-                return;
-            }
+            let refresh_token = match require_refresh(&store) {
+                Some(t) => t,
+                None => {
+                    eprintln!("No refresh token saved. Login again.");
+                    return;
+                }
+            };
 
             let url = format!("{}/token/refresh", cli.base);
 
             let resp = reqwest::Client::new()
                 .get(url)
-                .bearer_auth(&store.refresh_token) // refresh token goes in Authorization: Bearer ...
+                .bearer_auth(refresh_token)
                 .send()
                 .await;
 
@@ -341,7 +257,6 @@ async fn main() {
                 .unwrap_or("upload.bin")
                 .to_string();
 
-            // Build multipart form: file + is_public
             let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
 
             let form = reqwest::multipart::Form::new()
@@ -366,9 +281,27 @@ async fn main() {
             };
 
             println!("HTTP {}", resp.status());
-            let body = resp.text().await.unwrap_or_default();
-            println!("{body}");
+
+            if !resp.status().is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                eprintln!("{body}");
+                return;
+            }
+
+            let out: UploadResp = match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("Failed to parse JSON: {e}");
+                    return;
+                }
+            };
+
+            println!(
+                "Uploaded file_id={} filename={} size={} public={}",
+                out.file_id, out.filename, out.size, out.is_public
+            );
         }
+
         Command::Download { file_id, out } => {
             let store = match load_tokens() {
                 Ok(s) => s,
@@ -423,6 +356,7 @@ async fn main() {
 
             println!("Saved to {out}");
         }
+
         Command::Share { file_id, user_id } => {
             let store = match load_tokens() {
                 Ok(s) => s,
@@ -476,6 +410,7 @@ async fn main() {
                 out.file_id, out.user_id, out.permission_id
             );
         }
+
         Command::RevokeUser { file_id, user_id } => {
             let store = match load_tokens() {
                 Ok(s) => s,
@@ -553,15 +488,9 @@ async fn main() {
             println!("Saved to {out}");
         }
 
-        Command::Logout => {
-            let p = token_path();
-            match std::fs::remove_file(&p) {
-                Ok(_) => println!("Logged out. Removed {:?}", p),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    println!("Already logged out (no token file).")
-                }
-                Err(e) => eprintln!("Failed to remove {:?}: {e}", p),
-            }
-        }
+        Command::Logout => match logout_local() {
+            Ok(()) => println!("Logged out. Removed {:?}", token_path()),
+            Err(e) => eprintln!("Failed to remove {:?}: {e}", token_path()),
+        },
     }
 }
