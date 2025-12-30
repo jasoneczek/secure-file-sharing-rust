@@ -1,4 +1,6 @@
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
+use std::{fs, path::PathBuf};
 
 #[derive(Parser)]
 #[command(name = "sfs", about = "Secure File Sharing CLI client")]
@@ -12,8 +14,56 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    // Test connection
     Health,
+    Register { username: String, password: String },
+    Login { username: String, password: String },
+    Me,
+    Refresh,
+}
+
+#[derive(Serialize)]
+struct AuthReq<'a> {
+    username: &'a str,
+    password: &'a str,
+}
+
+#[derive(Deserialize)]
+struct AuthResp {
+    access_token: String,
+    refresh_token: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct TokenStore {
+    access_token: String,
+    refresh_token: String,
+}
+
+fn token_path() -> PathBuf {
+    PathBuf::from("client").join(".sfs").join("tokens.json")
+}
+
+fn save_tokens(store: &TokenStore) -> std::io::Result<()> {
+    let p = token_path();
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let s = serde_json::to_string_pretty(store).unwrap();
+    fs::write(p, s)
+}
+
+fn load_tokens() -> std::io::Result<TokenStore> {
+    let p = token_path();
+    let s = fs::read_to_string(p)?;
+    Ok(serde_json::from_str(&s).unwrap_or_default())
+}
+
+fn require_access(store: &TokenStore) -> Option<&str> {
+    if store.access_token.is_empty() {
+        None
+    } else {
+        Some(store.access_token.as_str())
+    }
 }
 
 #[tokio::main]
@@ -44,6 +94,187 @@ async fn main() {
 
             println!("Health OK");
         }
+
+        Command::Register { username, password } => {
+            let url = format!("{}/register", cli.base);
+
+            let resp = reqwest::Client::new()
+                .post(url)
+                .json(&AuthReq {
+                    username: &username,
+                    password: &password,
+                })
+                .send()
+                .await;
+
+            let resp = match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Register request failed: {e}");
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                eprintln!("Register failed: HTTP {}", resp.status());
+                let _ = resp.text().await;
+                return;
+            }
+
+            let auth: AuthResp = match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("Failed to parse JSON: {e}");
+                    return;
+                }
+            };
+
+            let store = TokenStore {
+                access_token: auth.access_token,
+                refresh_token: auth.refresh_token,
+            };
+
+            if let Err(e) = save_tokens(&store) {
+                eprintln!("Failed to save tokens: {e}");
+                return;
+            }
+
+            println!("Registered. Tokens saved to {:?}", token_path());
+        }
+        Command::Login { username, password } => {
+            let url = format!("{}/login", cli.base);
+
+            let resp = reqwest::Client::new()
+                .post(url)
+                .json(&AuthReq {
+                    username: &username,
+                    password: &password,
+                })
+                .send()
+                .await;
+
+            let resp = match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Login request failed: {e}");
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                eprintln!("Login failed: HTTP {}", resp.status());
+                let _ = resp.text().await;
+                return;
+            }
+
+            let auth: AuthResp = match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("Failed to parse JSON: {e}");
+                    return;
+                }
+            };
+
+            let store = TokenStore {
+                access_token: auth.access_token,
+                refresh_token: auth.refresh_token,
+            };
+
+            if let Err(e) = save_tokens(&store) {
+                eprintln!("Failed to save tokens: {e}");
+                return;
+            }
+
+            println!("Logged in. Tokens saved to {:?}", token_path());
+        }
+        Command::Me => {
+            let store = match load_tokens() {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("No saved tokens. Run: client login <user> <pass>");
+                    return;
+                }
+            };
+
+            let tok = match require_access(&store) {
+                Some(t) => t,
+                None => {
+                    eprintln!("No access token saved. Run: client login <user> <pass>");
+                    return;
+                }
+            };
+
+            let url = format!("{}/me", cli.base);
+            let resp = reqwest::Client::new()
+                .get(url)
+                .bearer_auth(tok)
+                .send()
+                .await;
+
+            let resp = match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Request failed: {e}");
+                    return;
+                }
+            };
+
+            println!("HTTP {}", resp.status());
+        }
+
+        Command::Refresh => {
+            let mut store = match load_tokens() {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("No saved tokens. Run: client login <user> <pass>");
+                    return;
+                }
+            };
+
+            if store.refresh_token.is_empty() {
+                eprintln!("No refresh token saved. Login again.");
+                return;
+            }
+
+            let url = format!("{}/token/refresh", cli.base);
+
+            let resp = reqwest::Client::new()
+                .get(url)
+                .bearer_auth(&store.refresh_token) // refresh token goes in Authorization: Bearer ...
+                .send()
+                .await;
+
+            let resp = match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Refresh request failed: {e}");
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                eprintln!("Refresh failed: HTTP {}", resp.status());
+                let _ = resp.text().await;
+                return;
+            }
+
+            let auth: AuthResp = match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("Failed to parse JSON: {e}");
+                    return;
+                }
+            };
+
+            store.access_token = auth.access_token;
+            store.refresh_token = auth.refresh_token;
+
+            if let Err(e) = save_tokens(&store) {
+                eprintln!("Failed to save tokens: {e}");
+                return;
+            }
+
+            println!("Refreshed. Tokens updated at {:?}", token_path());
+        }
     }
 }
-
