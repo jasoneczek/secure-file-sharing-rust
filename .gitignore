@@ -18,3 +18,5 @@ bob_downloaded.txt
 test.txt
 
 .env
+
+client/target/
