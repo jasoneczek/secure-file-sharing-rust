@@ -1,4 +1,4 @@
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::Error};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -11,6 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: u32,
+    pub username: String,
     pub exp: usize,
     pub iat: usize,
     pub jti: String,
@@ -34,12 +35,13 @@ fn jwt_secret_bytes() -> Vec<u8> {
 }
 
 /// Create a JWT for a given user id
-pub fn create_token(user_id: u32) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn create_token(user_id: u32, username: &str) -> Result<String, Error> {
     let now = now_secs();
     let expiration = now + ACCESS_TOKEN_TTL_SECS;
 
     let claims = Claims {
         sub: user_id,
+        username: username.to_string(),
         exp: expiration as usize,
         iat: now as usize,
         jti: Uuid::new_v4().to_string(),

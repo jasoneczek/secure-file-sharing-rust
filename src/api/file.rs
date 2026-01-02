@@ -99,7 +99,6 @@ pub async fn list_files_handler(
     Ok(Json(out))
 }
 
-
 /// Handle authenticated file uploads
 #[axum::debug_handler]
 pub async fn upload_handler(
