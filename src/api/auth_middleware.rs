@@ -21,7 +21,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Result<Respo
 
     let claims = verify_token(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    // Make user_id available to handers
+    // Make user_id available to handlers
     req.extensions_mut().insert(claims.sub);
 
     Ok(next.run(req).await)

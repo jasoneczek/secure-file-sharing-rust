@@ -11,6 +11,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[command(about = "Commands", arg_required_else_help = true)]
 pub enum Command {
     /// Check server connectivity
     Health,

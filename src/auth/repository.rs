@@ -34,6 +34,22 @@ impl AuthUserRepository {
         }))
     }
 
+    /// Get username by user id
+    pub async fn get_username_by_id(&self, user_id: u32) -> Result<Option<String>, sqlx::Error> {
+        let row_opt = sqlx::query(
+            r#"
+            SELECT username
+            FROM users
+            WHERE id = ?1
+            "#,
+        )
+        .bind(user_id as i64)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row_opt.map(|row| row.get::<String, _>("username")))
+    }
+
     /// Create and store a new user with a unique ID
     pub async fn create(
         &self,
@@ -76,11 +92,9 @@ impl AuthUserRepository {
         Ok(())
     }
 
-    /// Rotate fresh token atomically:
-    /// - old must exist and not be revoked
-    /// - old becomes revoked, and points to a new via replaced_by
-    /// - new token row is inserted
-    /// Returns Some(user_id) if success, None if invalid/used
+    /// Rotates a refresh token in a single transaction: the old token must exist and be unrevoked,
+    /// it is marked revoked and linked via `replaced_by`, and a new token row is inserted.
+    /// Returns `Some(user_id)` on success, or `None` if the token is invalid or already used.
     pub async fn rotate_refresh_token(
         &self,
         old_token: &str,

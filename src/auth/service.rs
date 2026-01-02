@@ -26,8 +26,13 @@ impl SimpleAuthService {
     }
 
     /// Issue access + refresh tokens and store refresh token in DB
-    async fn issue_tokens(&self, user_id: u32) -> Result<AuthTokenResponse, String> {
-        let access_token = create_token(user_id).map_err(|_| "Token creation failed")?;
+    async fn issue_tokens(
+        &self,
+        user_id: u32,
+        username: &str,
+    ) -> Result<AuthTokenResponse, String> {
+        let access_token = create_token(user_id, username).map_err(|_| "Token creation failed")?;
+
         let refresh_token = Uuid::new_v4().to_string();
 
         self.repo
@@ -82,7 +87,7 @@ impl AuthService for SimpleAuthService {
             .map_err(|_| "Database error")?;
 
         // Issue access + refresh tokens
-        self.issue_tokens(user.id).await
+        self.issue_tokens(user.id, &user.username).await
     }
 
     async fn login(&self, req: LoginRequest) -> Result<AuthTokenResponse, String> {
@@ -103,7 +108,7 @@ impl AuthService for SimpleAuthService {
         }
 
         // Issue access + refresh tokens
-        self.issue_tokens(user.id).await
+        self.issue_tokens(user.id, &user.username).await
     }
 
     async fn refresh(&self, refresh_token: String) -> Result<AuthTokenResponse, String> {
@@ -116,7 +121,14 @@ impl AuthService for SimpleAuthService {
             .map_err(|_| "Database error")?
             .ok_or("Invalid refresh token")?;
 
-        let access_token = create_token(user_id).map_err(|_| "Token creation failed")?;
+        let username = self
+            .repo
+            .get_username_by_id(user_id)
+            .await
+            .map_err(|_| "Database error")?
+            .ok_or("User not found")?;
+
+        let access_token = create_token(user_id, &username).map_err(|_| "Token creation failed")?;
 
         Ok(AuthTokenResponse {
             access_token,
