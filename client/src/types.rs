@@ -32,3 +32,13 @@ pub struct UploadResp {
     pub size: u64,
     pub is_public: bool,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct FileListItem {
+    pub file_id: u32,
+    pub filename: String,
+    pub size: u64,
+    pub is_public: bool,
+    pub uploaded_at: i64,
+    pub access: String,
+}

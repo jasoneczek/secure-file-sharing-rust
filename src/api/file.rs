@@ -38,6 +38,68 @@ pub struct ShareResponse {
     pub user_id: u32,
 }
 
+#[derive(Serialize)]
+pub struct FileListItem {
+    pub file_id: u32,
+    pub filename: String,
+    pub size: u64,
+    pub is_public: bool,
+    pub uploaded_at: i64,
+    pub access: String, // "owner" or "shared"
+}
+
+/// Handle list files
+pub async fn list_files_handler(
+    State(state): State<AppState>,
+    Extension(user_id): Extension<u32>,
+) -> Result<Json<Vec<FileListItem>>, StatusCode> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            f.id          AS id,
+            f.filename    AS filename,
+            f.size        AS size,
+            f.is_public   AS is_public,
+            f.uploaded_at AS uploaded_at,
+            CASE
+                WHEN f.owner_id = ?1 THEN 'owner'
+                ELSE 'shared'
+            END AS access
+        FROM files f
+        LEFT JOIN permissions p
+            ON p.file_id = f.id AND p.user_id = ?1
+        WHERE f.owner_id = ?1 OR p.user_id = ?1
+        ORDER BY f.uploaded_at DESC, f.id DESC
+        "#,
+    )
+    .bind(user_id as i64)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let id: i64 = r.get("id");
+        let filename: String = r.get("filename");
+        let size: i64 = r.get("size");
+        let is_public: i64 = r.get("is_public");
+        let uploaded_at: i64 = r.get("uploaded_at");
+        let access: String = r.get("access");
+
+        out.push(FileListItem {
+            file_id: id as u32,
+            filename,
+            size: size as u64,
+            is_public: is_public != 0,
+            uploaded_at,
+            access,
+        });
+    }
+
+    Ok(Json(out))
+}
+
+
 /// Handle authenticated file uploads
 #[axum::debug_handler]
 pub async fn upload_handler(

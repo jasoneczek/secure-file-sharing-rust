@@ -488,6 +488,70 @@ async fn main() {
             println!("Saved to {out}");
         }
 
+        Command::List => {
+            let store = match load_tokens() {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("No saved tokens. Run: sfs login <user> <pass>");
+                    return;
+                }
+            };
+
+            let tok = match require_access(&store) {
+                Some(t) => t,
+                None => {
+                    eprintln!("No access token saved. Run: sfs login <user> <pass>");
+                    return;
+                }
+            };
+
+            let url = format!("{}/files", cli.base);
+
+            let resp = match reqwest::Client::new()
+                .get(url)
+                .bearer_auth(tok)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("List request failed: {e}");
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                eprintln!("List failed: HTTP {}", resp.status());
+                let _ = resp.text().await;
+                return;
+            }
+
+            let items: Vec<crate::types::FileListItem> = match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("Failed to parse JSON: {e}");
+                    return;
+                }
+            };
+
+            if items.is_empty() {
+                println!("No files found.");
+                return;
+            }
+
+            println!("{:<6} {:<7} {:<10} {:<8} {}", "ID", "PUBLIC", "SIZE", "ACCESS", "NAME");
+            for f in items {
+                println!(
+                    "{:<6} {:<7} {:<10} {:<8} {}",
+                    f.file_id,
+                    if f.is_public { "yes" } else { "no" },
+                    f.size,
+                    f.access,
+                    f.filename
+                );
+            }
+        }
+
         Command::Logout => match logout_local() {
             Ok(()) => println!("Logged out."),
             Err(e) => eprintln!("Failed to remove: {e}"),

@@ -19,7 +19,7 @@ use api::auth::{login_handler, refresh_handler, register_handler};
 use api::auth_middleware::auth_middleware;
 use api::file::{
     download_handler, download_public_handler, revoke_share_by_user_handler, revoke_share_handler,
-    share_file_handler, upload_handler,
+    share_file_handler, upload_handler, list_files_handler,
 };
 use api::me::me_handler;
 use api::{AppState, health_check};
@@ -69,6 +69,7 @@ async fn main() {
             "/file/:id/share/user/:user_id",
             delete(revoke_share_by_user_handler),
         )
+        .route("/files", get(list_files_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
