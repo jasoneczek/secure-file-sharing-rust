@@ -1,23 +1,16 @@
 /target/
-.idea/
-*.bin
+/client/target/
+/.idea/
 
 # Local runtime data
 /data/
-data/
 *.db
 *.db-shm
 *.db-wal
 
-# Curl
-downloaded.txt
-private_download.txt
-public_download.txt
-bob_download.txt
-bob_downloaded.txt
-test.txt
-
+# Local secrets
 .env
+.env.*
 
-client/target/
+# Local CLI token cache
 client/.sfs/
