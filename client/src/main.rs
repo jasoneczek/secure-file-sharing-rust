@@ -539,14 +539,15 @@ async fn main() {
                 return;
             }
 
-            println!("{:<6} {:<7} {:<10} {:<8} {}", "ID", "PUBLIC", "SIZE", "ACCESS", "NAME");
+            println!("{:<6} {:<7} {:<10} {:<8} {:<12} {}", "ID", "PUBLIC", "SIZE", "ACCESS", "UPLOADED_AT", "NAME");
             for f in items {
                 println!(
-                    "{:<6} {:<7} {:<10} {:<8} {}",
+                    "{:<6} {:<7} {:<10} {:<8} {:<12} {}",
                     f.file_id,
                     if f.is_public { "yes" } else { "no" },
                     f.size,
                     f.access,
+                    f.uploaded_at,
                     f.filename
                 );
             }
