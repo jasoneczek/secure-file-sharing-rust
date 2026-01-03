@@ -211,4 +211,4 @@ Note: if you share a file and then revoke it, the permissions table may be empty
 
 ## Demo video
 
-- [Watch the demo (720p)](docs/demo.mp4)
+- [Watch the demo (720p)](https://github.com/user-attachments/assets/3dd86662-0fe8-42b5-b3d8-54d28160e06a)
