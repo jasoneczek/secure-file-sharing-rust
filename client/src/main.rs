@@ -8,6 +8,38 @@ use cli::{Cli, Command};
 use token_store::*;
 use types::*;
 
+fn print_http(status: reqwest::StatusCode) {
+    println!("HTTP {}", status);
+}
+
+fn eprint_http(prefix: &str, status: reqwest::StatusCode) {
+    eprintln!("{prefix}: HTTP {status}");
+}
+
+fn print_body_pretty_if_json(body: &str) {
+    let b = body.trim();
+    if b.is_empty() {
+        return;
+    }
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(b) {
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    } else {
+        println!("{b}");
+    }
+}
+
+fn eprint_body_pretty_if_json(body: &str) {
+    let b = body.trim();
+    if b.is_empty() {
+        return;
+    }
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(b) {
+        eprintln!("{}", serde_json::to_string_pretty(&json).unwrap());
+    } else {
+        eprintln!("{b}");
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -58,8 +90,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Register failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Register failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -105,8 +139,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Login failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Login failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -163,7 +199,11 @@ async fn main() {
                 }
             };
 
-            println!("HTTP {}", resp.status());
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+
+            print_http(status);
+            print_body_pretty_if_json(&body);
         }
 
         Command::Refresh => {
@@ -200,8 +240,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Refresh failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Refresh failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -336,8 +378,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Download failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Download failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -392,8 +436,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Share failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Share failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -449,8 +495,10 @@ async fn main() {
                 return;
             }
 
-            eprintln!("Revoke failed: HTTP {}", resp.status());
-            let _ = resp.text().await;
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            eprint_http("Revoke failed", status);
+            eprint_body_pretty_if_json(&body);
         }
 
         Command::PublicDownload { file_id, out } => {
@@ -467,8 +515,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("Public download failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("Public download failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
@@ -521,8 +571,10 @@ async fn main() {
             };
 
             if !resp.status().is_success() {
-                eprintln!("List failed: HTTP {}", resp.status());
-                let _ = resp.text().await;
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprint_http("List failed", status);
+                eprint_body_pretty_if_json(&body);
                 return;
             }
 
