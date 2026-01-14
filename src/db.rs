@@ -14,8 +14,6 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
         .join("data")
         .join("app.db");
 
-    println!("Using db file: {}", db_path.display());
-
     let opts = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true)

@@ -25,13 +25,22 @@ use auth::service::SimpleAuthService;
 
 #[tokio::main]
 async fn main() {
-    println!("\n=== File Sharing Server ===");
+    if let Err(e) = run().await {
+        eprintln!("Startup failed: {e}");
+        std::process::exit(1);
+    }
+}
 
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env
     dotenvy::dotenv().ok();
 
+    // Listener
+    let listener = TcpListener::bind("0.0.0.0:8080").await?;
+
     // Initialize SQLite DB
-    let db_pool = db::init_db().await.expect("DB init failed");
+    let db_pool = db::init_db().await?;
 
     // Build auth service
     let auth_repo = AuthUserRepository::new(db_pool.clone());
@@ -74,10 +83,11 @@ async fn main() {
     // Combine routers
     let app = public_routes.merge(protected_routes).with_state(state);
 
-    // Listener
-    let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    println!("\n=== File Sharing Server ===");
     println!("Server running at http://0.0.0.0:8080/");
 
     // Start server
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
