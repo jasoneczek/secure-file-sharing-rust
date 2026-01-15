@@ -1,9 +1,9 @@
 use axum::{
-    Json,
     body::Body,
     extract::{Extension, Multipart, Path, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{header, HeaderValue, StatusCode},
     response::Response,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -17,6 +17,13 @@ use crate::storage::disk::{ensure_upload_dir, final_upload_path, temp_upload_pat
 
 /// Maximum allowed upload size 10 MB
 const MAX_UPLOAD_SIZE: u64 = 10 * 1024 * 1024;
+
+/// Convert internal errors into a clean 500 for the client,
+/// while still logging debug info on the server.
+fn internal<E: std::fmt::Debug>(e: E) -> StatusCode {
+    eprintln!("[internal] {e:?}");
+    StatusCode::INTERNAL_SERVER_ERROR
+}
 
 #[derive(Serialize)]
 pub struct UploadResponse {
@@ -75,7 +82,7 @@ pub async fn list_files_handler(
     .bind(user_id as i64)
     .fetch_all(&state.db)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(internal)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
@@ -106,9 +113,7 @@ pub async fn upload_handler(
     Extension(user_id): Extension<u32>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, StatusCode> {
-    ensure_upload_dir()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ensure_upload_dir().await.map_err(internal)?;
 
     let temp_path = temp_upload_path();
 
@@ -137,9 +142,7 @@ pub async fn upload_handler(
             Some("file") => {
                 original_filename = field.file_name().map(|s| s.to_string());
 
-                let file = TokioFile::create(&temp_path)
-                    .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                let file = TokioFile::create(&temp_path).await.map_err(internal)?;
                 temp_file = Some(file);
 
                 let mut field = field;
@@ -147,15 +150,14 @@ pub async fn upload_handler(
                     size = size
                         .checked_add(chunk.len() as u64)
                         .ok_or(StatusCode::PAYLOAD_TOO_LARGE)?;
+
                     if size > MAX_UPLOAD_SIZE {
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         return Err(StatusCode::PAYLOAD_TOO_LARGE);
                     }
 
                     if let Some(f) = temp_file.as_mut() {
-                        f.write_all(&chunk)
-                            .await
-                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        f.write_all(&chunk).await.map_err(internal)?;
                     }
                 }
 
@@ -179,7 +181,7 @@ pub async fn upload_handler(
     // Insert into DB first to get a stable file_id
     let uploaded_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(internal)?
         .as_secs() as i64;
 
     let res = sqlx::query(
@@ -195,17 +197,21 @@ pub async fn upload_handler(
     .bind(uploaded_at)
     .execute(&state.db)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(internal)?;
 
     let file_id = res.last_insert_rowid() as u32;
 
     // Move temp file into final path using file_id
     let final_path = final_upload_path(file_id as u64);
-    if tokio::fs::rename(&temp_path, &final_path).await.is_err() {
+
+    if let Err(e) = tokio::fs::rename(&temp_path, &final_path).await {
+        eprintln!("[internal] rename failed: {e:?}");
+
         let _ = sqlx::query("DELETE FROM files WHERE id = ?1")
             .bind(file_id as i64)
             .execute(&state.db)
             .await;
+
         let _ = tokio::fs::remove_file(&temp_path).await;
 
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -245,7 +251,7 @@ pub async fn download_handler(
     .bind(user_id as i64)
     .fetch_optional(&state.db)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(internal)?;
 
     let row = row.ok_or(StatusCode::NOT_FOUND)?;
     let stored_id: i64 = row.get("id");
@@ -269,7 +275,7 @@ pub async fn download_public_handler(
     .bind(file_id as i64)
     .fetch_optional(&state.db)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(internal)?;
 
     let row = row.ok_or(StatusCode::NOT_FOUND)?;
     let stored_id: i64 = row.get("id");
@@ -290,7 +296,7 @@ pub async fn share_file_handler(
         .bind(file_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(internal)?;
 
     let row = row.ok_or(StatusCode::NOT_FOUND)?;
     let db_owner_id: i64 = row.get("owner_id");
@@ -303,7 +309,7 @@ pub async fn share_file_handler(
         .bind(req.user_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(internal)?;
     if target_exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -323,13 +329,14 @@ pub async fn share_file_handler(
     let res = match res {
         Ok(r) => r,
         Err(e) => {
+            // Conflict for duplicate share
             if let sqlx::Error::Database(db_err) = &e {
                 let msg = db_err.message().to_ascii_lowercase();
                 if msg.contains("unique") || msg.contains("constraint") {
                     return Err(StatusCode::CONFLICT);
                 }
             }
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            return Err(internal(e));
         }
     };
 
@@ -353,7 +360,7 @@ pub async fn revoke_share_handler(
         .bind(file_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let db_owner_id: i64 = row.get("owner_id");
@@ -366,7 +373,7 @@ pub async fn revoke_share_handler(
         .bind(permission_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let p_file_id: i64 = prow.get("file_id");
@@ -379,12 +386,12 @@ pub async fn revoke_share_handler(
         .bind(permission_id as i64)
         .execute(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(internal)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-// Revoke a share by target user id
+/// Revoke a share by target user id
 pub async fn revoke_share_by_user_handler(
     Path((file_id, target_user_id)): Path<(u32, u32)>,
     State(state): State<AppState>,
@@ -395,7 +402,7 @@ pub async fn revoke_share_by_user_handler(
         .bind(file_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let db_owner_id: i64 = row.get("owner_id");
@@ -409,7 +416,7 @@ pub async fn revoke_share_by_user_handler(
         .bind(target_user_id as i64)
         .fetch_optional(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let permission_id: i64 = row.get("id");
@@ -419,7 +426,7 @@ pub async fn revoke_share_by_user_handler(
         .bind(permission_id)
         .execute(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(internal)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -431,9 +438,11 @@ async fn stream_file_response(
 ) -> Result<Response, StatusCode> {
     let path = final_upload_path(file_id as u64);
 
-    let disk_file = TokioFile::open(&path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let disk_file = TokioFile::open(&path).await.map_err(|e| {
+        // Return 404
+        eprintln!("[internal] open file failed: {e:?}");
+        StatusCode::NOT_FOUND
+    })?;
 
     let stream = ReaderStream::new(disk_file);
     let body = Body::from_stream(stream);
@@ -446,12 +455,12 @@ async fn stream_file_response(
 
     let safe_name = filename_for_header.replace('"', "_");
     let disposition = format!("attachment; filename=\"{}\"", safe_name);
+
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        disposition
-            .parse()
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        disposition.parse().map_err(internal)?,
     );
 
     Ok(response)
 }
+

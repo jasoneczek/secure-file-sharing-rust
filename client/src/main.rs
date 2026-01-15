@@ -40,6 +40,16 @@ fn eprint_body_pretty_if_json(body: &str) {
     }
 }
 
+fn eprint_error(prefix: &str, status: reqwest::StatusCode, body: &str) {
+    eprint_http(prefix, status);
+
+    if status == reqwest::StatusCode::INTERNAL_SERVER_ERROR {
+        return;
+    }
+
+    eprint_body_pretty_if_json(body);
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -92,8 +102,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Register failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Register failed", status, &body);
                 return;
             }
 
@@ -141,8 +150,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Login failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Login failed", status, &body);
                 return;
             }
 
@@ -203,6 +211,15 @@ async fn main() {
             let body = resp.text().await.unwrap_or_default();
 
             print_http(status);
+
+            if !status.is_success() {
+                // Don't print redundant body for 500
+                if status != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
+                    print_body_pretty_if_json(&body);
+                }
+                return;
+            }
+
             print_body_pretty_if_json(&body);
         }
 
@@ -242,8 +259,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Refresh failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Refresh failed", status, &body);
                 return;
             }
 
@@ -267,7 +283,6 @@ async fn main() {
         }
 
         Command::Upload { path, public } => {
-            // Load saved tokens
             let store = match load_tokens() {
                 Ok(s) => s,
                 Err(_) => {
@@ -284,7 +299,6 @@ async fn main() {
                 }
             };
 
-            // Read file from disk
             let bytes = match tokio::fs::read(&path).await {
                 Ok(b) => b,
                 Err(e) => {
@@ -305,7 +319,6 @@ async fn main() {
                 .part("file", part)
                 .text("is_public", public.to_string());
 
-            // Send
             let url = format!("{}/file/upload", cli.base);
             let resp = reqwest::Client::new()
                 .post(url)
@@ -322,15 +335,17 @@ async fn main() {
                 }
             };
 
-            println!("HTTP {}", resp.status());
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
 
-            if !resp.status().is_success() {
-                let body = resp.text().await.unwrap_or_default();
-                eprintln!("{body}");
+            if !status.is_success() {
+                eprint_error("Upload failed", status, &body);
                 return;
             }
 
-            let out: UploadResp = match resp.json().await {
+            print_http(status);
+
+            let out: UploadResp = match serde_json::from_str(&body) {
                 Ok(j) => j,
                 Err(e) => {
                     eprintln!("Failed to parse JSON: {e}");
@@ -380,8 +395,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Download failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Download failed", status, &body);
                 return;
             }
 
@@ -438,8 +452,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Share failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Share failed", status, &body);
                 return;
             }
 
@@ -497,8 +510,7 @@ async fn main() {
 
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            eprint_http("Revoke failed", status);
-            eprint_body_pretty_if_json(&body);
+            eprint_error("Revoke failed", status, &body);
         }
 
         Command::PublicDownload { file_id, out } => {
@@ -517,8 +529,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("Public download failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("Public download failed", status, &body);
                 return;
             }
 
@@ -573,8 +584,7 @@ async fn main() {
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                eprint_http("List failed", status);
-                eprint_body_pretty_if_json(&body);
+                eprint_error("List failed", status, &body);
                 return;
             }
 
@@ -591,7 +601,10 @@ async fn main() {
                 return;
             }
 
-            println!("{:<6} {:<7} {:<10} {:<8} {:<12} {}", "ID", "PUBLIC", "SIZE", "ACCESS", "UPLOADED_AT", "NAME");
+            println!(
+                "{:<6} {:<7} {:<10} {:<8} {:<12} {}",
+                "ID", "PUBLIC", "SIZE", "ACCESS", "UPLOADED_AT", "NAME"
+            );
             for f in items {
                 println!(
                     "{:<6} {:<7} {:<10} {:<8} {:<12} {}",
@@ -611,3 +624,4 @@ async fn main() {
         },
     }
 }
+
